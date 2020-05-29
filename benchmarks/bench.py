@@ -2,21 +2,16 @@ import asyncio
 import argparse
 import os
 from concurrent import futures
-from ery.protocol import start_server, new_channel
+from ery.aioprotocol import start_server, new_channel
 
 
 async def main(nprocs, nbytes, duration):
-    server = await start_server(('127.0.0.1', 5556), handler)
+    server = await start_server(("127.0.0.1", 5556), handler)
     loop = asyncio.get_running_loop()
     with futures.ProcessPoolExecutor(max_workers=nprocs) as executor:
         async with server:
             clients = [
-                loop.run_in_executor(
-                    executor,
-                    bench_client,
-                    nbytes,
-                    duration,
-                )
+                loop.run_in_executor(executor, bench_client, nbytes, duration,)
                 for _ in range(nprocs)
             ]
             res = await asyncio.gather(*clients)
@@ -64,15 +59,20 @@ async def client(nbytes, duration):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Benchmark channels')
+    parser = argparse.ArgumentParser(description="Benchmark channels")
     parser.add_argument("--nprocs", default=1, type=int, help="Number of processes")
-    parser.add_argument("--nbytes", default=10, type=float, help="payload size in bytes")
-    parser.add_argument("--duration", default=10, type=int, help="bench duration in secs")
+    parser.add_argument(
+        "--nbytes", default=10, type=float, help="payload size in bytes"
+    )
+    parser.add_argument(
+        "--duration", default=10, type=int, help="bench duration in secs"
+    )
     parser.add_argument("--uvloop", action="store_true", help="Whether to use uvloop")
     args = parser.parse_args()
 
     if args.uvloop:
         import uvloop
+
         uvloop.install()
 
     print(
@@ -81,9 +81,5 @@ if __name__ == "__main__":
     )
 
     asyncio.run(
-        main(
-            nprocs=args.nprocs,
-            nbytes=int(args.nbytes),
-            duration=args.duration,
-        )
+        main(nprocs=args.nprocs, nbytes=int(args.nbytes), duration=args.duration,)
     )
