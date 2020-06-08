@@ -9,7 +9,6 @@ setup(
     maintainer_email="jcristharif@gmail.com",
     license="BSD",
     packages=["ery"],
-    install_requires=["msgpack"],
     long_description=(
         open("README.rst").read() if os.path.exists("README.rst") else ""
     ),
