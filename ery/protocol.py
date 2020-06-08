@@ -35,14 +35,14 @@ class Op(enum.IntEnum):
     ID = 3
     CODE = 4
     WINDOW = 5
-    METADATA_LENGTH = 6
-    METADATA = 7
+    ROUTE_LENGTH = 6
+    METADATA_LENGTH = 7
     BODY_LENGTH = 8
-    BODY = 9
-    ROUTE_LENGTH = 10
+    NFRAMES = 9
+    FRAME_LENGTHS = 10
     ROUTE = 11
-    NFRAMES = 12
-    FRAME_LENGTHS = 13
+    METADATA = 12
+    BODY = 13
     FRAMES = 14
 
 
@@ -62,6 +62,17 @@ class ProtocolError(Exception):
     pass
 
 
+
+HANDLERS = {}
+
+
+def handler(op):
+    def f(func):
+        HANDLERS[op] = func
+        return func
+    return f
+
+
 class Protocol(object):
     """A sans-io protocol for ery"""
 
@@ -79,19 +90,19 @@ class Protocol(object):
         """Get a buffer to write bytes into"""
         if self.op < Op.FRAMES:
             # Still waiting on full header read
-            self.using_output_buffer = False
+            self.using_frame_buffer = False
             return memoryview(self.default_buffer)[self.default_buffer_end :]
         else:
-            if self.output_buffer is None:
-                self.setup_output_buffer()
-            to_read = len(self.output_buffer) - self.output_buffer_end
+            if self.frame_buffer is None:
+                self.setup_frame_buffer()
+            to_read = len(self.frame_buffer) - self.frame_buffer_index
             if to_read >= len(self.default_buffer):
                 # More than the max read size is needed for the next output frame
                 # Read directly into the output frame
-                self.using_output_buffer = True
-                return memoryview(self.output_buffer)[self.output_buffer_end :]
+                self.using_frame_buffer = True
+                return memoryview(self.frame_buffer)[self.frame_buffer_index :]
             else:
-                self.using_output_buffer = False
+                self.using_frame_buffer = False
                 return memoryview(self.default_buffer)[self.default_buffer_end :]
 
     def buffer_updated(self, nbytes):
@@ -99,8 +110,8 @@ class Protocol(object):
         if nbytes == 0:
             return
 
-        if self.using_output_buffer:
-            self.output_buffer_end += nbytes
+        if self.using_frame_buffer:
+            self.frame_buffer_index += nbytes
         else:
             self.default_buffer_end += nbytes
 
@@ -115,12 +126,11 @@ class Protocol(object):
             out = []
         return out
 
-    def setup_output_buffer(self):
-        assert self.op == Op.FRAMES
+    def setup_frame_buffer(self):
         assert self.frame_index < self.nframes
         to_read = self.frame_lengths[self.frame_index]
-        self.output_buffer = bytearray(to_read)
-        self.output_buffer_end = 0
+        self.frame_buffer = bytearray(to_read)
+        self.frame_buffer_index = 0
 
     def reset_default_buffer(self):
         start = self.default_buffer_start
@@ -148,29 +158,11 @@ class Protocol(object):
         self.frame_lengths_index = 0
         self.frames = []
         self.frame_index = 0
-        self.output_buffer = None
-        self.output_buffer_end = 0
+        self.frame_buffer = None
+        self.frame_buffer_index = 0
         self.op = Op.KIND
 
-    def message_completed(self):
-        # Construct message
-        if self.kind == Kind.REQUEST:
-            msg = messages.Request(
-                id=self.id,
-                route=self.route,
-                metadata=self.metadata,
-                frames=self.frames
-            )
-        elif self.kind == Kind.PAYLOAD:
-            msg = messages.Request(
-                id=self.id,
-                is_next=bool(self.flags & FLAG_NEXT),
-                is_complete=bool(self.flags & FLAG_COMPLETE),
-                metadata=self.metadata,
-                frames=self.frames
-            )
-        elif self.kind == Kind.HEARTBEAT:
-            msg = messages.Heartbeat()
+    def message_completed(self, msg):
         self.messages.append(msg)
         self.reset_message_state()
 
@@ -224,40 +216,37 @@ class Protocol(object):
         if kind > MAX_KIND:
             raise ProtocolError("Invalid kind %d" % self.kind)
         self.kind = Kind(kind)
-        if kind == Kind.HEARTBEAT:
-            self.message_completed()
-            return False
+        if self.kind == Op.HEARTBEAT:
+            self.message_completed(messages.Heartbeat())
         else:
             self.op = Op.FLAGS
-            return True
+        return True
 
+    @handler(Op.FLAGS)
     def parse_flags(self):
         ok, flags = self.parse_uint8()
         if not ok:
             return False
         self.flags = flags
-        self.op = Op.ID
         return True
 
+    @handler(Op.ID)
     def parse_id(self):
         ok, id = self.parse_uint32()
         if not ok:
             return False
         self.id = id
-        if self.kind == Kind.REQUEST:
-            self.op = Op.ROUTE_LENGTH
-        elif self.kind == Kind.PAYLOAD:
-            self.op = Op.METADATA_LENGTH
         return True
 
+    @handler(Op.ROUTE_LENGTH)
     def parse_route_length(self):
         ok, length = self.parse_uint16()
         if not ok:
             return False
         self.route_length = length
-        self.op = Op.METADATA_LENGTH
         return True
 
+    @handler(Op.METADATA_LENGTH)
     def parse_metadata_length(self):
         if self.flags & FLAG_METADATA:
             ok, length = self.parse_uint32()
@@ -266,12 +255,9 @@ class Protocol(object):
             self.metadata_length = length
         else:
             self.metadata_length = 0
-        if self.kind == Kind.REQUEST:
-            self.op = Op.NFRAMES
-        elif self.kind == Kind.PAYLOAD:
-            self.op = Op.NFRAMES
         return True
 
+    @handler(Op.NFRAMES)
     def parse_nframes(self):
         if self.flags & FLAG_BODY:
             if self.flags & FLAG_FRAMES:
@@ -283,9 +269,9 @@ class Protocol(object):
                 self.nframes = 1
         else:
             self.nframes = 0
-        self.op = Op.FRAME_LENGTHS
         return True
 
+    @handler(Op.FRAME_LENGTHS)
     def parse_frame_lengths(self):
         if self.nframes > 0:
             if self.frame_lengths is None:
@@ -299,12 +285,9 @@ class Protocol(object):
                     return False
                 self.frame_lengths[self.frame_lengths_index] = val
                 self.frame_lengths_index += 1
-        if self.kind == Kind.REQUEST:
-            self.op = Op.ROUTE
-        elif self.kind == Kind.PAYLOAD:
-            self.op = Op.METADATA
         return True
 
+    @handler(Op.ROUTE)
     def parse_route(self):
         if self.route is None:
             self.route = bytearray(self.route_length)
@@ -312,9 +295,9 @@ class Protocol(object):
         ok, ncopy = self.parse_nbytes(self.route, self.route_index, self.route_length)
         if not ok:
             return False
-        self.op = Op.METADATA
         return True
 
+    @handler(Op.METADATA)
     def parse_metadata(self):
         if self.flags & FLAG_METADATA:
             if self.metadata is None:
@@ -326,79 +309,97 @@ class Protocol(object):
                 return False
         else:
             self.metadata = None
-        self.op = Op.FRAMES
         return True
 
-    def parse_frames(self):
-        if not self.using_output_buffer:
-            start = self.default_buffer_start
-            end = self.default_buffer_end
-
-            if self.output_buffer is None:
-                self.setup_output_buffer()
-
-            offset = self.output_buffer_end
-            available = end - start
-            needed = len(self.output_buffer) - offset
-            ncopy = min(available, needed)
-
-            self.output_buffer[offset : offset + ncopy] = self.default_buffer[
-                start : start + ncopy
-            ]
-            self.output_buffer_end += ncopy
-            self.default_buffer_start += ncopy
-
-        if self.output_buffer_end == len(self.output_buffer):
-            # We've filled this output buffer
-            self.frames.append(self.output_buffer)
-            self.output_buffer = None
-            self.frame_index += 1
-            # If a msg ends with some empty frames, we should eagerly detect
-            # these to avoid waiting for the next message to finish them.
-            while self.frame_index < self.nframes and self.frame_lengths[self.frame_index] == 0:
-                self.frames.append(bytearray(0))
-                self.frame_index += 1
-            if self.frame_index == self.nframes:
-                self.message_completed()
-
-        if self.using_output_buffer:
-            return False
-        elif self.default_buffer_start == self.default_buffer_end:
-            return False
+    def parse_frame(self):
+        if self.frame_buffer is None:
+            self.setup_frame_buffer()
+        frame_length = self.frame_lengths[self.frame_index]
+        if frame_length > 0:
+            ok, ncopy = self.parse_nbytes(self.frame_buffer, self.frame_buffer_index, frame_length)
+            self.frame_buffer_index += ncopy
         else:
-            return True
+            ok = True
+        return ok
+
+    @handler(Op.FRAMES)
+    def parse_frames(self):
+        while self.frame_index < self.nframes:
+            if self.using_frame_buffer:
+                ok = self.frame_buffer_index == len(self.frame_buffer)
+                self.using_frame_buffer = False
+            else:
+                ok = self.parse_frame()
+            if not ok:
+                return False
+
+            # We've filled this output buffer
+            self.frames.append(self.frame_buffer)
+            self.frame_buffer = None
+            self.frame_index += 1
+        return True
+
+    def parse_msg(self, ops):
+        for op in ops:
+            if op < self.op:
+                continue
+            ok = HANDLERS[op](self)
+            if not ok:
+                self.op = op
+                return False
+        return True
+
+    def parse_request(self):
+        ok = self.parse_msg([
+            Op.FLAGS,
+            Op.ID,
+            Op.ROUTE_LENGTH,
+            Op.METADATA_LENGTH,
+            Op.NFRAMES,
+            Op.FRAME_LENGTHS,
+            Op.ROUTE,
+            Op.METADATA,
+            Op.FRAMES,
+        ])
+        if ok:
+            self.message_completed(
+                messages.Request(
+                    id=self.id,
+                    route=self.route,
+                    metadata=self.metadata,
+                    frames=self.frames
+                )
+            )
+        return ok
+
+    def parse_payload(self):
+        ok = self.parse_msg([
+            Op.FLAGS,
+            Op.ID,
+            Op.METADATA_LENGTH,
+            Op.NFRAMES,
+            Op.FRAME_LENGTHS,
+            Op.METADATA,
+            Op.FRAMES
+        ])
+        if ok:
+            self.message_completed(
+                messages.Payload(
+                    id=self.id,
+                    is_next=self.flags & FLAG_NEXT,
+                    is_complete=self.flags & FLAG_COMPLETE,
+                    metadata=self.metadata,
+                    frames=self.frames
+                )
+            )
+        return ok
 
     def advance(self):
         if self.op == Op.KIND:
             return self.parse_kind()
-        elif self.op == Op.FLAGS:
-            return self.parse_flags()
-        elif self.op == Op.HEARTBEAT:
-            return self.parse_heartbeat()
-        elif self.op == Op.ID:
-            return self.parse_id()
-        elif self.op == Op.CODE:
-            return self.parse_code()
-        elif self.op == Op.WINDOW:
-            return self.parse_window()
-        elif self.op == Op.METADATA_LENGTH:
-            return self.parse_metadata_length()
-        elif self.op == Op.METADATA:
-            return self.parse_metadata()
-        elif self.op == Op.BODY_LENGTH:
-            return self.parse_body_length()
-        elif self.op == Op.BODY:
-            return self.parse_body()
-        elif self.op == Op.ROUTE_LENGTH:
-            return self.parse_route_length()
-        elif self.op == Op.ROUTE:
-            return self.parse_route()
-        elif self.op == Op.NFRAMES:
-            return self.parse_nframes()
-        elif self.op == Op.FRAME_LENGTHS:
-            return self.parse_frame_lengths()
-        elif self.op == Op.FRAMES:
-            return self.parse_frames()
+        else:
+            if self.kind == Kind.REQUEST:
+                return self.parse_request()
 
 
 from . import messages
