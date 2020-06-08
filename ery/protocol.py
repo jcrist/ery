@@ -54,13 +54,262 @@ u16_struct = struct.Struct("!H")
 unpack_u16 = u16_struct.unpack_from
 pack_u16 = u16_struct.pack_into
 
+
 def pack_nbytes(buf, offset, bytes):
-    buf[offset:len(bytes) + offset] = bytes
+    buf[offset : len(bytes) + offset] = bytes
+
+
+def _write(
+    kind,
+    id=None,
+    uint32=None,
+    route=None,
+    metadata=None,
+    body=None,
+    frames=None,
+    is_next=False,
+    is_complete=False,
+):
+    length = 2
+    if id is not None:
+        length += 4
+    if uint32 is not None:
+        length += 4
+    flags = 0
+    if route is not None:
+        length += 2 + len(route)
+    if metadata is not None:
+        flags |= FLAG_METADATA
+        length += 4
+    if body is not None:
+        flags |= FLAG_BODY
+        length += 4
+    elif frames is not None:
+        flags |= FLAG_BODY
+        if len(frames) == 1:
+            length += 4
+        else:
+            flags |= FLAG_FRAMES
+            length += 2 + 4 * len(frames)
+    if is_next:
+        flags &= FLAG_NEXT
+    if is_complete:
+        flags &= FLAG_COMPLETE
+
+    header = bytearray(length)
+    header[0] = kind
+    header[1] = flags
+    chunks = [header]
+    offset = 2
+    if id is not None:
+        pack_u32(header, offset, id)
+        offset += 4
+    if route is not None:
+        pack_u16(header, offset, len(route))
+        offset += 2
+    if uint32 is not None:
+        pack_u32(header, offset, uint32)
+        offset += 4
+    if metadata is not None:
+        pack_u32(header, offset, len(metadata))
+        offset += 4
+        chunks.append(metadata)
+    if body is not None:
+        pack_u32(header, offset, len(body))
+        if len(body) > 0:
+            chunks.append(body)
+    elif frames is not None:
+        if len(frames) > 1:
+            pack_u16(header, offset, len(frames))
+            offset += 2
+        for f in frames:
+            pack_u32(header, offset, len(f))
+            offset += 4
+            if len(f) > 0:
+                chunks.append(f)
+    if route is not None:
+        pack_nbytes(header, offset, route)
+    return chunks
+
+
+class Setup(object):
+    __slots__ = ("heartbeat", "metadata", "body")
+
+    def __init__(self, heartbeat, metadata=None, body=None):
+        self.heartbeat = heartbeat
+        self.metadata = metadata
+        self.body = body
+
+    def serialize(self):
+        return _write(
+            Kind.SETUP, uint32=self.heartbeat, metadata=self.metadata, body=self.body
+        )
+
+
+class SetupResponse(object):
+    __slots__ = ("heartbeat", "metadata", "body")
+
+    def __init__(self, heartbeat, metadata=None, body=None):
+        self.heartbeat = heartbeat
+        self.metadata = metadata
+        self.body = body
+
+    def serialize(self):
+        return _write(
+            Kind.SETUP_RESPONSE,
+            uint32=self.heartbeat,
+            metadata=self.metadata,
+            body=self.body,
+        )
+
+
+class Heartbeat(object):
+    __slots__ = ()
+
+    def serialize(self):
+        return Kind.HEARTBEAT.to_bytes(1, "big", signed=True)
+
+
+class Error(object):
+    __slots__ = ("id", "code", "metadata", "body")
+
+    def __init__(self, id, code, metadata=None, body=None):
+        self.id = id
+        self.code = code
+        self.metadata = metadata
+        self.body = body
+
+    def serialize(self):
+        return _write(
+            Kind.ERROR,
+            id=self.id,
+            uint32=self.code,
+            metadata=self.metadata,
+            body=self.body,
+        )
+
+
+class Cancel(object):
+    __slots__ = ("id",)
+
+    def __init__(self, id):
+        self.id = id
+
+    def serialize(self):
+        return _write(Kind.CANCEL, id=self.id)
+
+
+class IncrementWindow(object):
+    __slots__ = ("id", "window")
+
+    def __init__(self, id, window):
+        self.id = id
+        self.window = window
+
+    def serialize(self):
+        return _write(Kind.INCREMENT_WINDOW, id=self.id, uint32=self.window)
+
+
+class Request(object):
+    __slots__ = ("id", "route", "metadata", "frames")
+
+    def __init__(self, id, route, metadata=None, frames=None):
+        self.id = id
+        self.route = route
+        self.metadata = metadata
+        self.frames = frames
+
+    def serialize(self):
+        return _write(
+            Kind.REQUEST,
+            id=self.id,
+            route=self.route,
+            metadata=self.metadata,
+            frames=self.frames,
+        )
+
+
+class Notice(object):
+    __slots__ = ("route", "metadata", "frames")
+
+    def __init__(self, route, metadata=None, frames=None):
+        self.route = route
+        self.metadata = metadata
+        self.frames = frames
+
+    def serialize(self):
+        return _write(
+            Kind.NOTICE, route=self.route, metadata=self.metadata, frames=self.frames
+        )
+
+
+class RequestStream(object):
+    __slots__ = ("id", "route", "window", "metadata", "frames")
+
+    def __init__(self, id, window, route, metadata=None, frames=None):
+        self.id = id
+        self.window = window
+        self.route = route
+        self.metadata = metadata
+        self.frames = frames
+
+    def serialize(self):
+        return _write(
+            Kind.REQUEST_STREAM,
+            id=self.id,
+            uint32=self.window,
+            route=self.route,
+            metadata=self.metadata,
+            frames=self.frames,
+        )
+
+
+class RequestChannel(object):
+    __slots__ = ("id", "route", "window", "metadata", "frames")
+
+    def __init__(self, id, window, route, metadata=None, frames=None):
+        self.id = id
+        self.window = window
+        self.route = route
+        self.metadata = metadata
+        self.frames = frames
+
+    def serialize(self):
+        return _write(
+            Kind.REQUEST_CHANNEL,
+            id=self.id,
+            uint32=self.window,
+            route=self.route,
+            metadata=self.metadata,
+            frames=self.frames,
+        )
+
+
+class Payload(object):
+    __slots__ = ("id", "metadata", "frames", "is_next", "is_complete")
+
+    def __init__(
+        self, id, metadata=None, frames=None, is_next=False, is_complete=False
+    ):
+        self.id = id
+        self.metadata = metadata
+        self.frames = frames
+        self.is_next = is_next
+        self.is_complete = is_complete
+
+    def serialize(self):
+        return _write(
+            Kind.PAYLOAD,
+            id=self.id,
+            metadata=self.metadata,
+            frames=self.frames,
+            is_next=self.is_next,
+            is_complete=self.is_complete,
+        )
 
 
 class ProtocolError(Exception):
     pass
-
 
 
 HANDLERS = {}
@@ -70,6 +319,7 @@ def handler(op):
     def f(func):
         HANDLERS[op] = func
         return func
+
     return f
 
 
@@ -82,7 +332,7 @@ class Protocol(object):
         self.default_buffer_start = 0
         self.default_buffer_end = 0
         # Current state
-        self.default_frame_lengths_buffer = array.array("L", [0]*frame_lengths_size)
+        self.default_frame_lengths_buffer = array.array("L", [0] * frame_lengths_size)
         self.messages = []
         self.reset_message_state()
 
@@ -201,9 +451,7 @@ class Protocol(object):
         needed = length - index
         ncopy = min(available, needed)
         if available:
-            buf[index : index + ncopy] = self.default_buffer[
-                start : start + ncopy
-            ]
+            buf[index : index + ncopy] = self.default_buffer[start : start + ncopy]
             self.default_buffer_start += ncopy
         ok = ncopy == needed
         return ok, ncopy
@@ -217,7 +465,7 @@ class Protocol(object):
             raise ProtocolError("Invalid kind %d" % self.kind)
         self.kind = Kind(kind)
         if self.kind == Op.HEARTBEAT:
-            self.message_completed(messages.Heartbeat())
+            self.message_completed(Heartbeat())
         else:
             self.op = Op.FLAGS
         return True
@@ -303,7 +551,9 @@ class Protocol(object):
             if self.metadata is None:
                 self.metadata = bytearray(self.metadata_length)
                 self.metadata_index = 0
-            ok, ncopy = self.parse_nbytes(self.metadata, self.metadata_index, self.metadata_length)
+            ok, ncopy = self.parse_nbytes(
+                self.metadata, self.metadata_index, self.metadata_length
+            )
             self.metadata_index += ncopy
             if not ok:
                 return False
@@ -316,7 +566,9 @@ class Protocol(object):
             self.setup_frame_buffer()
         frame_length = self.frame_lengths[self.frame_index]
         if frame_length > 0:
-            ok, ncopy = self.parse_nbytes(self.frame_buffer, self.frame_buffer_index, frame_length)
+            ok, ncopy = self.parse_nbytes(
+                self.frame_buffer, self.frame_buffer_index, frame_length
+            )
             self.frame_buffer_index += ncopy
         else:
             ok = True
@@ -350,46 +602,50 @@ class Protocol(object):
         return True
 
     def parse_request(self):
-        ok = self.parse_msg([
-            Op.FLAGS,
-            Op.ID,
-            Op.ROUTE_LENGTH,
-            Op.METADATA_LENGTH,
-            Op.NFRAMES,
-            Op.FRAME_LENGTHS,
-            Op.ROUTE,
-            Op.METADATA,
-            Op.FRAMES,
-        ])
+        ok = self.parse_msg(
+            [
+                Op.FLAGS,
+                Op.ID,
+                Op.ROUTE_LENGTH,
+                Op.METADATA_LENGTH,
+                Op.NFRAMES,
+                Op.FRAME_LENGTHS,
+                Op.ROUTE,
+                Op.METADATA,
+                Op.FRAMES,
+            ]
+        )
         if ok:
             self.message_completed(
-                messages.Request(
+                Request(
                     id=self.id,
                     route=self.route,
                     metadata=self.metadata,
-                    frames=self.frames
+                    frames=self.frames,
                 )
             )
         return ok
 
     def parse_payload(self):
-        ok = self.parse_msg([
-            Op.FLAGS,
-            Op.ID,
-            Op.METADATA_LENGTH,
-            Op.NFRAMES,
-            Op.FRAME_LENGTHS,
-            Op.METADATA,
-            Op.FRAMES
-        ])
+        ok = self.parse_msg(
+            [
+                Op.FLAGS,
+                Op.ID,
+                Op.METADATA_LENGTH,
+                Op.NFRAMES,
+                Op.FRAME_LENGTHS,
+                Op.METADATA,
+                Op.FRAMES,
+            ]
+        )
         if ok:
             self.message_completed(
-                messages.Payload(
+                Payload(
                     id=self.id,
+                    metadata=self.metadata,
+                    frames=self.frames,
                     is_next=self.flags & FLAG_NEXT,
                     is_complete=self.flags & FLAG_COMPLETE,
-                    metadata=self.metadata,
-                    frames=self.frames
                 )
             )
         return ok
@@ -400,6 +656,3 @@ class Protocol(object):
         else:
             if self.kind == Kind.REQUEST:
                 return self.parse_request()
-
-
-from . import messages
