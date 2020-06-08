@@ -3,7 +3,7 @@ import collections
 import itertools
 import time
 
-from .protocol import Protocol, dumps_header
+from .protocol import Protocol
 
 
 class ChannelProtocol(asyncio.BufferedProtocol):
@@ -64,12 +64,12 @@ class ChannelProtocol(asyncio.BufferedProtocol):
             if not waiter.done():
                 waiter.set_result(None)
 
-    async def write(self, *frames):
-        self.transport.write(dumps_header(frames))
-        if len(frames) > 1:
-            self.transport.writelines(frames)
+    async def write(self, msg):
+        parts = msg.serialize()
+        if len(parts) > 1:
+            self.transport.writelines(parts)
         else:
-            self.transport.write(frames[0])
+            self.transport.write(parts[0])
         if self.transport.is_closing():
             await asyncio.sleep(0, loop=self._loop)
         elif self._paused and not self._connection_lost:
@@ -105,10 +105,10 @@ class Channel(object):
         if not next(self._yield_cycler):
             await asyncio.sleep(0, loop=self._loop)
 
-    async def send(self, *frames):
+    async def send(self, msg):
         if self._exception is not None:
             raise self._exception
-        await self._protocol.write(*frames)
+        await self._protocol.write(msg)
         await self._maybe_yield()
 
     async def __aiter__(self):
@@ -151,8 +151,8 @@ class Channel(object):
         """
         self._close()
 
-    def _append_msg(self, frames):
-        self._queue.append(frames)
+    def _append_msg(self, msg):
+        self._queue.append(msg)
 
         waiter = self._waiter
         if waiter is not None:

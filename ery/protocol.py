@@ -167,7 +167,7 @@ class Heartbeat(object):
     __slots__ = ()
 
     def serialize(self):
-        return Kind.HEARTBEAT.to_bytes(1, "big", signed=True)
+        return [Kind.HEARTBEAT.to_bytes(1, "big", signed=True)]
 
 
 class Error(object):
@@ -656,3 +656,5 @@ class Protocol(object):
         else:
             if self.kind == Kind.REQUEST:
                 return self.parse_request()
+            elif self.kind == Kind.PAYLOAD:
+                return self.parse_payload()

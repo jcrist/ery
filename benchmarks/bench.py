@@ -3,6 +3,7 @@ import argparse
 import os
 from concurrent import futures
 from ery.aioprotocol import start_server, new_channel
+from ery.protocol import Request, Payload
 
 
 async def main(nprocs, nbytes, duration):
@@ -26,7 +27,8 @@ async def main(nprocs, nbytes, duration):
 
 async def handler(channel):
     async for req in channel:
-        await channel.send(*req)
+        resp = Payload(req.id, metadata=req.metadata, frames=req.frames)
+        await channel.send(resp)
 
 
 def bench_client(nbytes, duration):
@@ -44,12 +46,13 @@ async def client(nbytes, duration):
     loop.call_later(duration, stop)
 
     payload = os.urandom(nbytes)
+    req = Request(1234, b"hello", frames=[payload])
 
     async with await new_channel(("127.0.0.1", 5556)) as channel:
         count = 0
         start = loop.time()
         while running:
-            await channel.send(payload)
+            await channel.send(req)
             await channel.recv()
             count += 1
         stop = loop.time()
