@@ -3,7 +3,7 @@ import collections
 import itertools
 import time
 
-from .protocol import Protocol
+from .protocol2 import Protocol
 
 
 class ChannelProtocol(asyncio.BufferedProtocol):

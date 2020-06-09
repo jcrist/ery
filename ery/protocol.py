@@ -46,11 +46,11 @@ class Op(enum.IntEnum):
     FRAMES = 14
 
 
-u32_struct = struct.Struct("!L")
+u32_struct = struct.Struct("<L")
 unpack_u32 = u32_struct.unpack_from
 pack_u32 = u32_struct.pack_into
 
-u16_struct = struct.Struct("!H")
+u16_struct = struct.Struct("<H")
 unpack_u16 = u16_struct.unpack_from
 pack_u16 = u16_struct.pack_into
 
@@ -541,6 +541,7 @@ class Protocol(object):
             self.route = bytearray(self.route_length)
             self.route_index = 0
         ok, ncopy = self.parse_nbytes(self.route, self.route_index, self.route_length)
+        self.route_index += ncopy
         if not ok:
             return False
         return True

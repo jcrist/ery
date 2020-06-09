@@ -27,7 +27,7 @@ async def main(nprocs, nbytes, duration):
 
 async def handler(channel):
     async for req in channel:
-        resp = Payload(req.id, metadata=req.metadata, frames=req.frames)
+        resp = Payload(req.id, frames=(b"hi",))
         await channel.send(resp)
 
 
