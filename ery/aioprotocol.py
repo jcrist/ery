@@ -3,7 +3,7 @@ import collections
 import itertools
 import time
 
-from .protocol2 import Protocol
+from .protocol import Protocol, build_message
 
 
 class ChannelProtocol(asyncio.BufferedProtocol):
@@ -20,7 +20,7 @@ class ChannelProtocol(asyncio.BufferedProtocol):
         self._connection_lost = None
         self._paused = False
         self._drain_waiter = None
-        self.protocol = Protocol(**kwargs)
+        self.protocol = Protocol(self.message_received, **kwargs)
 
     def connection_made(self, transport):
         self.transport = transport
@@ -32,9 +32,11 @@ class ChannelProtocol(asyncio.BufferedProtocol):
     def get_buffer(self, sizehint):
         return self.protocol.get_buffer()
 
+    def message_received(self, kind, args):
+        self.channel._append_msg(build_message(kind, args))
+
     def buffer_updated(self, nbytes):
-        for msg in self.protocol.buffer_updated(nbytes):
-            self.channel._append_msg(msg)
+        self.protocol.buffer_updated(nbytes)
 
     def eof_received(self):
         self.channel._set_exception(ConnectionResetError())
