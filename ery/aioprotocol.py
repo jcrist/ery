@@ -3,7 +3,7 @@ import collections
 import itertools
 import time
 
-from .protocol import Protocol, build_message
+from .protocol import Protocol, build_message, Request, Payload
 
 
 class ChannelProtocol(asyncio.BufferedProtocol):
@@ -90,6 +90,8 @@ class Channel(object):
         self._transport = transport
         self._loop = loop
 
+        self._id_iter = itertools.count()
+        self._active_reqs = {}
         self._queue = collections.deque()
         self._yield_cycler = itertools.cycle(range(50))
         self._waiter = None
@@ -106,6 +108,17 @@ class Channel(object):
     async def _maybe_yield(self):
         if not next(self._yield_cycler):
             await asyncio.sleep(0, loop=self._loop)
+
+    async def request(self, route, metadata=None, frames=None):
+        """Send a request message and wait for a response"""
+        if self._exception is not None:
+            raise self._exception
+
+        msg_id = next(self._id_iter)
+        msg = Request(msg_id, route, metadata=metadata, frames=frames)
+        reply = self._active_reqs[msg_id] = self._loop.create_future()
+        await self._protocol.write(msg)
+        return await reply
 
     async def send(self, msg):
         if self._exception is not None:
@@ -152,14 +165,26 @@ class Channel(object):
         This method is idempotent.
         """
         self._close()
+        try:
+            futs = self._active_reqs.values()
+            await asyncio.gather(*futs, return_exceptions=True)
+        except asyncio.CancelledError:
+            pass
 
     def _append_msg(self, msg):
-        self._queue.append(msg)
+        if isinstance(msg, Request):
+            self._queue.append(msg)
 
-        waiter = self._waiter
-        if waiter is not None:
-            self._waiter = None
-            waiter.set_result(False)
+            waiter = self._waiter
+            if waiter is not None:
+                self._waiter = None
+                waiter.set_result(False)
+        elif isinstance(msg, Payload):
+            message = self._active_reqs.pop(msg.id, None)
+            if message is not None and not message.done():
+                message.set_result(msg)
+        else:
+            self._set_exception(RuntimeError("Invalid message %s" % msg))
 
     def _set_exception(self, exc):
         if self._exception:
@@ -174,12 +199,6 @@ class Channel(object):
                 waiter.set_exception(exc)
 
         self._close()
-
-
-class RemoteException(Exception):
-    """A remote exception that occurs on a different machine"""
-
-    pass
 
 
 async def new_channel(addr, *, loop=None, timeout=0, **kwargs):
