@@ -6,13 +6,13 @@ from ery.aioprotocol import start_server, new_channel
 from ery.protocol import Request, Payload
 
 
-async def main(nprocs, nbytes, duration):
-    server = await start_server(("127.0.0.1", 5556), handler)
+async def main(address, nprocs, nbytes, duration):
+    server = await start_server(address, handler)
     loop = asyncio.get_running_loop()
     with futures.ProcessPoolExecutor(max_workers=nprocs) as executor:
         async with server:
             clients = [
-                loop.run_in_executor(executor, bench_client, nbytes, duration,)
+                loop.run_in_executor(executor, bench_client, address, nbytes, duration,)
                 for _ in range(nprocs)
             ]
             res = await asyncio.gather(*clients)
@@ -31,11 +31,11 @@ async def handler(channel):
         await channel.send(resp)
 
 
-def bench_client(nbytes, duration):
-    return asyncio.run(client(nbytes, duration))
+def bench_client(address, nbytes, duration):
+    return asyncio.run(client(address, nbytes, duration))
 
 
-async def client(nbytes, duration):
+async def client(address, nbytes, duration):
     running = True
 
     def stop():
@@ -48,7 +48,7 @@ async def client(nbytes, duration):
     payload = os.urandom(nbytes)
     req = Request(1234, b"hello", frames=[payload])
 
-    async with await new_channel(("127.0.0.1", 5556)) as channel:
+    async with await new_channel(address) as channel:
         count = 0
         start = loop.time()
         while running:
@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--duration", default=10, type=int, help="bench duration in secs"
     )
+    parser.add_argument("--unix", action="store_true", help="Whether to use unix domain sockets")
     parser.add_argument("--uvloop", action="store_true", help="Whether to use uvloop")
     args = parser.parse_args()
 
@@ -77,12 +78,16 @@ if __name__ == "__main__":
         import uvloop
 
         uvloop.install()
+    if args.unix:
+        address = 'benchsock'
+    else:
+        address = ("127.0.0.1", 5556)
 
     print(
         f"Benchmarking: nprocs={args.nprocs}, nbytes={args.nbytes}, duration={args.duration}, "
-        f"uvloop={args.uvloop}"
+        f"uvloop={args.uvloop}, unix-sockets={args.unix}"
     )
 
     asyncio.run(
-        main(nprocs=args.nprocs, nbytes=int(args.nbytes), duration=args.duration,)
+        main(address, nprocs=args.nprocs, nbytes=int(args.nbytes), duration=args.duration,)
     )
