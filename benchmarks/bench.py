@@ -66,7 +66,7 @@ async def client(address, concurrency, nbytes, duration):
         tasks = [
             asyncio.ensure_future(run(channel, payload)) for _ in range(concurrency)
         ]
-        res = await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         stop = loop.time()
         time = stop - start
 
@@ -75,7 +75,9 @@ async def client(address, concurrency, nbytes, duration):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark channels")
-    parser.add_argument("--nprocs", default=1, type=int, help="Number of processes")
+    parser.add_argument(
+        "--procs", "-p", default=1, type=int, help="Number of processes"
+    )
     parser.add_argument(
         "--concurrency",
         "-c",
@@ -84,10 +86,10 @@ if __name__ == "__main__":
         help="Number of concurrent calls per proc",
     )
     parser.add_argument(
-        "--nbytes", default=10, type=float, help="payload size in bytes"
+        "--bytes", "-b", default=10, type=float, help="payload size in bytes"
     )
     parser.add_argument(
-        "--duration", default=10, type=int, help="bench duration in secs"
+        "--seconds", "-s", default=5, type=int, help="bench duration in secs"
     )
     parser.add_argument(
         "--unix", action="store_true", help="Whether to use unix domain sockets"
@@ -99,22 +101,23 @@ if __name__ == "__main__":
         import uvloop
 
         uvloop.install()
+
     if args.unix:
         address = "benchsock"
     else:
         address = ("127.0.0.1", 5556)
 
     print(
-        f"Benchmarking: nprocs={args.nprocs}, concurrency={args.concurrency}, nbytes={args.nbytes}, "
-        f"duration={args.duration}, uvloop={args.uvloop}, unix-sockets={args.unix}"
+        f"processes={args.procs}, concurrency={args.concurrency}, bytes={args.bytes}, "
+        f"time={args.seconds}, uvloop={args.uvloop}, unix-sockets={args.unix}"
     )
 
     asyncio.run(
         main(
             address,
-            nprocs=args.nprocs,
+            nprocs=args.procs,
             concurrency=args.concurrency,
-            nbytes=int(args.nbytes),
-            duration=args.duration,
+            nbytes=int(args.bytes),
+            duration=args.seconds,
         )
     )
