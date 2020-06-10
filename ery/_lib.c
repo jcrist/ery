@@ -1,21 +1,22 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 
-#define unpack_u32(buf) \
-    (\
-        (((unsigned int)(((unsigned char *)buf)[0]))) |\
-        (((unsigned int)(((unsigned char *)buf)[1])) << 8) |\
-        (((unsigned int)(((unsigned char *)buf)[2])) << 16) |\
-        (((unsigned int)(((unsigned char *)buf)[3])) << 24)\
+#define unpack_u32(buf)                             \
+    (                                               \
+        (((uint32_t)(((uint8_t *)buf)[0]))) |       \
+        (((uint32_t)(((uint8_t *)buf)[1])) << 8) |  \
+        (((uint32_t)(((uint8_t *)buf)[2])) << 16) | \
+        (((uint32_t)(((uint8_t *)buf)[3])) << 24)   \
     )
 
-#define unpack_u16(buf) \
-    (\
-        ((unsigned short)(((unsigned char *)buf)[0])) |\
-        (((unsigned short)(((unsigned char *)buf)[1])) << 8)\
+#define unpack_u16(buf)                             \
+    (                                               \
+        ((uint16_t)(((uint8_t *)buf)[0])) |         \
+        (((uint16_t)(((uint8_t *)buf)[1])) << 8)    \
     )
 
 
@@ -72,37 +73,37 @@ typedef struct {
     Py_ssize_t default_buffer_start;
     Py_ssize_t default_buffer_end;
     // default_frame_lengths
-    unsigned int *default_frame_lengths_buffer;
-    unsigned int default_frame_lengths_buffer_size;
+    uint32_t *default_frame_lengths_buffer;
+    uint32_t default_frame_lengths_buffer_size;
     // -- dynamic attributes --
-    unsigned char kind;
+    uint8_t kind;
     enum Op op;
-    unsigned char flags;
-    unsigned int id;
-    unsigned int extra_uint32;
+    uint8_t flags;
+    uint32_t id;
+    uint32_t extra_uint32;
     // route
-    unsigned short route_length;
-    unsigned int route_index;
+    uint16_t route_length;
+    uint32_t route_index;
     PyObject *route;
     // metadata
-    unsigned int metadata_length;
-    unsigned int metadata_index;
+    uint32_t metadata_length;
+    uint32_t metadata_index;
     PyObject *metadata;
     // body
-    unsigned int body_length;
-    unsigned int body_index;
+    uint32_t body_length;
+    uint32_t body_index;
     PyObject *body;
     // nframes
-    unsigned short nframes;
+    uint16_t nframes;
     // frame lengths
-    unsigned int *frame_lengths;
-    unsigned short frame_lengths_index;
+    uint32_t *frame_lengths;
+    uint16_t frame_lengths_index;
     // frames
     PyObject *frames;
     Py_ssize_t frame_index;
     // frame buffer
     PyObject *frame_buffer;
-    unsigned int frame_buffer_index;
+    uint32_t frame_buffer_index;
     bool using_frame_buffer;
 } ProtocolObject;
 
@@ -184,7 +185,7 @@ Protocol_init(ProtocolObject *self, PyObject *args, PyObject *kwds)
     self->default_buffer_end = 0;
     /* frame lengths buffer management */
     self->default_frame_lengths_buffer_size = frame_lengths_size;
-    self->default_frame_lengths_buffer = (unsigned int *)PyMem_Malloc(frame_lengths_size * sizeof(unsigned int));
+    self->default_frame_lengths_buffer = (uint32_t *)PyMem_Malloc(frame_lengths_size * sizeof(uint32_t));
     if (self->default_frame_lengths_buffer == NULL) {
         PyErr_NoMemory();
         return -1;
@@ -320,7 +321,7 @@ Protocol_buffer_updated(ProtocolObject *self, PyObject *args)
 }
 
 static int
-parse_uint8(ProtocolObject *self, unsigned char *out)
+parse_uint8(ProtocolObject *self, uint8_t *out)
 {
     Py_ssize_t start = self->default_buffer_start;
     Py_ssize_t end = self->default_buffer_end;
@@ -333,7 +334,7 @@ parse_uint8(ProtocolObject *self, unsigned char *out)
 }
 
 static int
-parse_uint16(ProtocolObject *self, unsigned short *out)
+parse_uint16(ProtocolObject *self, uint16_t *out)
 {
     Py_ssize_t start = self->default_buffer_start;
     Py_ssize_t end = self->default_buffer_end;
@@ -346,7 +347,7 @@ parse_uint16(ProtocolObject *self, unsigned short *out)
 }
 
 static int
-parse_uint32(ProtocolObject *self, unsigned int *out)
+parse_uint32(ProtocolObject *self, uint32_t *out)
 {
     Py_ssize_t start = self->default_buffer_start;
     Py_ssize_t end = self->default_buffer_end;
@@ -359,7 +360,7 @@ parse_uint32(ProtocolObject *self, unsigned int *out)
 }
 
 static int
-parse_nbytes(ProtocolObject *self, char *buf, unsigned int *index, unsigned int length)
+parse_nbytes(ProtocolObject *self, char *buf, uint32_t *index, uint32_t length)
 {
     Py_ssize_t start = self->default_buffer_start;
     Py_ssize_t end = self->default_buffer_end;
@@ -382,7 +383,7 @@ parse_kind(ProtocolObject *self)
     int status = parse_uint8(self, &self->kind);
     if (status == 0) {
         if (self->kind < 1 || self->kind > KIND_MAX) {
-            PyErr_Format(PyExc_ValueError, "Invalid kind: %u", (unsigned int)(self->kind));
+            PyErr_Format(PyExc_ValueError, "Invalid kind: %u", (uint32_t)(self->kind));
             return -1;
         }
         self->op = OP_FLAGS;
@@ -468,7 +469,7 @@ parse_frame_lengths(ProtocolObject *self)
     if (self->nframes > 0) {
         if (self->frame_lengths == NULL) {
             if (self->nframes > self->default_frame_lengths_buffer_size) {
-                self->frame_lengths = (unsigned int *)PyMem_Malloc(self->nframes * sizeof(unsigned int));
+                self->frame_lengths = (uint32_t *)PyMem_Malloc(self->nframes * sizeof(uint32_t));
                 if (self->frame_lengths == NULL) {
                     PyErr_NoMemory();
                     return -1;
@@ -498,7 +499,9 @@ parse_route(ProtocolObject *self)
         }
         self->route_index = 0;
     }
-    return parse_nbytes(self, PyByteArray_AS_STRING(self->route), &self->route_index, self->route_length);
+    return parse_nbytes(
+        self, PyByteArray_AS_STRING(self->route), &self->route_index, self->route_length
+    );
 }
 
 static int
@@ -512,7 +515,10 @@ parse_metadata(ProtocolObject *self)
             }
             self->metadata_index = 0;
         }
-        return parse_nbytes(self, PyByteArray_AS_STRING(self->metadata), &self->metadata_index, self->metadata_length);
+        return parse_nbytes(
+            self, PyByteArray_AS_STRING(self->metadata),
+            &self->metadata_index, self->metadata_length
+        );
     } else {
         Py_INCREF(Py_None);
         self->metadata = Py_None;
@@ -531,7 +537,9 @@ parse_body(ProtocolObject *self)
             }
             self->body_index = 0;
         }
-        return parse_nbytes(self, PyByteArray_AS_STRING(self->body), &self->body_index, self->body_length);
+        return parse_nbytes(
+            self, PyByteArray_AS_STRING(self->body), &self->body_index, self->body_length
+        );
     } else {
         Py_INCREF(Py_None);
         self->body = Py_None;
@@ -542,7 +550,7 @@ parse_body(ProtocolObject *self)
 static int
 parse_frame(ProtocolObject *self)
 {
-    unsigned int frame_buffer_size = self->frame_lengths[self->frame_index];
+    uint32_t frame_buffer_size = self->frame_lengths[self->frame_index];
     if (self->frame_buffer == NULL) {
         self->frame_buffer = PyByteArray_FromStringAndSize(NULL, frame_buffer_size);
         if (self->frame_buffer == NULL) {
@@ -551,7 +559,10 @@ parse_frame(ProtocolObject *self)
         self->frame_buffer_index = 0;
     }
     if (frame_buffer_size > 0) {
-        return parse_nbytes(self, PyByteArray_AS_STRING(self->frame_buffer), &self->frame_buffer_index, frame_buffer_size);
+        return parse_nbytes(
+            self, PyByteArray_AS_STRING(self->frame_buffer),
+            &self->frame_buffer_index, frame_buffer_size
+        );
     }
     return 0;
 }
@@ -578,32 +589,32 @@ parse_frames(ProtocolObject *self)
     return status;
 }
 
-#define PARSE_START()\
-    int status;\
-    switch (self->op) {\
-        default:\
-            PyErr_Format(PyExc_ValueError, "Invalid op: %u", (unsigned int)(self->op));\
+#define PARSE_START()                                                                   \
+    int status;                                                                         \
+    switch (self->op) {                                                                 \
+        default:                                                                        \
+            PyErr_Format(PyExc_ValueError, "Invalid op: %u", (uint32_t)(self->op));     \
             return -1;
 
-#define PARSE(OP, FUNC) \
-    case OP: \
-        status = FUNC(self);\
-        if (status != 0) {\
-            self->op = OP;\
-            return status;\
+#define PARSE(OP, FUNC)                                                                 \
+    case OP:                                                                            \
+        status = FUNC(self);                                                            \
+        if (status != 0) {                                                              \
+            self->op = OP;                                                              \
+            return status;                                                              \
         }
 
-#define PARSE_STOP(FORMAT, ...)\
-    }\
-    PyObject *args = Py_BuildValue(FORMAT, __VA_ARGS__);\
-    Protocol_reset_message(self, false);\
-    PyObject *res = PyObject_CallObject(self->msg_callback, args);\
-    Py_XDECREF(args);\
-    if (res == NULL) {\
-        return -1;\
-    } \
-    Py_DECREF(res);\
-    return 0;\
+#define PARSE_STOP(FORMAT, ...)                                                         \
+    }                                                                                   \
+    PyObject *args = Py_BuildValue(FORMAT, __VA_ARGS__);                                \
+    Protocol_reset_message(self, false);                                                \
+    PyObject *res = PyObject_CallObject(self->msg_callback, args);                      \
+    Py_XDECREF(args);                                                                   \
+    if (res == NULL) {                                                                  \
+        return -1;                                                                      \
+    }                                                                                   \
+    Py_DECREF(res);                                                                     \
+    return 0;
 
 static int
 parse_setup_or_setup_response(ProtocolObject *self)
@@ -658,7 +669,7 @@ parse_increment_window(ProtocolObject *self)
     PARSE(OP_WINDOW, parse_extra_uint32)
     PARSE_STOP("B(II)", self->kind, self->id, self->extra_uint32)
 }
-            
+
 static int
 parse_request(ProtocolObject *self)
 {
@@ -705,7 +716,10 @@ parse_stream_or_channel(ProtocolObject *self)
     PARSE(OP_ROUTE, parse_route)
     PARSE(OP_METADATA, parse_metadata)
     PARSE(OP_FRAMES, parse_frames)
-    PARSE_STOP("B(IINNN)", self->kind, self->id, self->extra_uint32, self->route, self->metadata, self->frames)
+    PARSE_STOP(
+        "B(IINNN)", self->kind, self->id, self->extra_uint32,
+        self->route, self->metadata, self->frames
+    )
 }
 
 static int
@@ -755,8 +769,14 @@ Protocol_advance(ProtocolObject *self) {
 }
 
 static PyMethodDef Protocol_methods[] = {
-    {"get_buffer", (PyCFunction) Protocol_get_buffer, METH_NOARGS, PyDoc_STR("get_buffer() -> memoryview")},
-    {"buffer_updated", (PyCFunction) Protocol_buffer_updated, METH_VARARGS, PyDoc_STR("buffer_updated(nbytes: int) -> None")},
+    {
+        "get_buffer", (PyCFunction) Protocol_get_buffer, METH_NOARGS,
+        PyDoc_STR("get_buffer() -> memoryview")
+    },
+    {
+        "buffer_updated", (PyCFunction) Protocol_buffer_updated, METH_VARARGS,
+        PyDoc_STR("buffer_updated(nbytes: int) -> None")
+    },
     {NULL},
 };
 
