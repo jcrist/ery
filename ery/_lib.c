@@ -38,13 +38,11 @@ enum Op {
     OP_WINDOW = 5,
     OP_ROUTE_LENGTH = 6,
     OP_METADATA_LENGTH = 7,
-    OP_BODY_LENGTH = 8,
-    OP_NFRAMES = 9,
-    OP_FRAME_LENGTHS = 10,
-    OP_ROUTE = 11,
-    OP_METADATA = 12,
-    OP_BODY = 13,
-    OP_FRAMES = 14,
+    OP_NFRAMES = 8,
+    OP_FRAME_LENGTHS = 9,
+    OP_ROUTE = 10,
+    OP_METADATA = 11,
+    OP_FRAMES = 12,
 };
 
 enum Kind {
@@ -89,10 +87,6 @@ typedef struct {
     uint32_t metadata_length;
     uint32_t metadata_index;
     PyObject *metadata;
-    // body
-    uint32_t body_length;
-    uint32_t body_index;
-    PyObject *body;
     // nframes
     uint16_t nframes;
     // frame lengths
@@ -130,8 +124,6 @@ Protocol_reset_message(ProtocolObject *self, bool decref)
     self->route_index = 0;
     self->metadata_length = 0;
     self->metadata_index = 0;
-    self->body_length = 0;
-    self->body_index = 0;
     self->nframes = 0;
     if (self->frame_lengths != self->default_frame_lengths_buffer) {
         PyMem_Free(self->frame_lengths);
@@ -144,12 +136,10 @@ Protocol_reset_message(ProtocolObject *self, bool decref)
     if (decref) {
         Py_CLEAR(self->route);
         Py_CLEAR(self->metadata);
-        Py_CLEAR(self->body);
         Py_CLEAR(self->frames);
     } else {
         self->route = NULL;
         self->metadata = NULL;
-        self->body = NULL;
         self->frames = NULL;
     }
 }
@@ -202,7 +192,6 @@ Protocol_clear(ProtocolObject *self)
     Py_CLEAR(self->msg_callback);
     Py_CLEAR(self->route);
     Py_CLEAR(self->metadata);
-    Py_CLEAR(self->body);
     Py_CLEAR(self->frames);
     return 0;
 }
@@ -213,7 +202,6 @@ Protocol_traverse(ProtocolObject *self, visitproc visit, void *arg)
     Py_VISIT(self->msg_callback);
     Py_VISIT(self->route);
     Py_VISIT(self->metadata);
-    Py_VISIT(self->body);
     Py_VISIT(self->frames);
     return 0;
 }
@@ -430,15 +418,6 @@ parse_metadata_length(ProtocolObject *self)
 }
 
 static int
-parse_body_length(ProtocolObject *self)
-{
-    if (self->flags & FLAG_BODY) {
-        return parse_uint32(self, &self->body_length);
-    }
-    return 0;
-}
-
-static int
 parse_nframes(ProtocolObject *self)
 {
     int status;
@@ -448,12 +427,12 @@ parse_nframes(ProtocolObject *self)
             if (status != 0) {
                 return status;
             }
+            self->frames = PyList_New(self->nframes);
+            if (self->frames == NULL) {
+                return -1;
+            }
         } else {
             self->nframes = 1;
-        }
-        self->frames = PyList_New(self->nframes);
-        if (self->frames == NULL) {
-            return -1;
         }
     } else {
         self->nframes = 0;
@@ -527,27 +506,6 @@ parse_metadata(ProtocolObject *self)
 }
 
 static int
-parse_body(ProtocolObject *self)
-{
-    if (self->flags & FLAG_BODY) {
-        if (self->body == NULL) {
-            self->body = PyByteArray_FromStringAndSize(NULL, self->body_length);
-            if (self->body == NULL) {
-                return -1;
-            }
-            self->body_index = 0;
-        }
-        return parse_nbytes(
-            self, PyByteArray_AS_STRING(self->body), &self->body_index, self->body_length
-        );
-    } else {
-        Py_INCREF(Py_None);
-        self->body = Py_None;
-        return 0;
-    }
-}
-
-static int
 parse_frame(ProtocolObject *self)
 {
     uint32_t frame_buffer_size = self->frame_lengths[self->frame_index];
@@ -582,7 +540,11 @@ parse_frames(ProtocolObject *self)
             return status;
         }
 
-        PyList_SET_ITEM(self->frames, self->frame_index, self->frame_buffer);
+        if (self->flags & FLAG_FRAMES) {
+            PyList_SET_ITEM(self->frames, self->frame_index, self->frame_buffer);
+        } else {
+            self->frames = self->frame_buffer;
+        }
         self->frame_buffer = NULL;
         self->frame_index += 1;
     };
@@ -623,10 +585,11 @@ parse_setup_or_setup_response(ProtocolObject *self)
     PARSE(OP_FLAGS, parse_flags)
     PARSE(OP_HEARTBEAT, parse_extra_uint32)
     PARSE(OP_METADATA_LENGTH, parse_metadata_length)
-    PARSE(OP_BODY_LENGTH, parse_body_length)
+    PARSE(OP_NFRAMES, parse_nframes)
+    PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_METADATA, parse_metadata)
-    PARSE(OP_BODY, parse_body)
-    PARSE_STOP("B(INN)", self->kind, self->extra_uint32, self->metadata, self->body)
+    PARSE(OP_FRAMES, parse_frames)
+    PARSE_STOP("B(INN)", self->kind, self->extra_uint32, self->metadata, self->frames)
 }
 
 static int
@@ -645,10 +608,11 @@ parse_error(ProtocolObject *self)
     PARSE(OP_ID, parse_id)
     PARSE(OP_CODE, parse_extra_uint32)
     PARSE(OP_METADATA_LENGTH, parse_metadata_length)
-    PARSE(OP_BODY_LENGTH, parse_body_length)
+    PARSE(OP_NFRAMES, parse_nframes)
+    PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_METADATA, parse_metadata)
-    PARSE(OP_BODY, parse_body)
-    PARSE_STOP("B(IINN)", self->kind, self->id, self->extra_uint32, self->metadata, self->body)
+    PARSE(OP_FRAMES, parse_frames)
+    PARSE_STOP("B(IINN)", self->kind, self->id, self->extra_uint32, self->metadata, self->frames)
 }
 
 static int

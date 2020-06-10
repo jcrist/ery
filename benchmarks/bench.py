@@ -30,7 +30,7 @@ async def main(address, nprocs, concurrency, nbytes, duration):
 async def handler(channel):
     try:
         async for req in channel:
-            resp = Payload(req.id, frames=(b"hi",))
+            resp = Payload(req.id, body=b"hi")
             await channel.send(resp)
     except OSError:
         pass
@@ -56,7 +56,7 @@ async def client(address, concurrency, nbytes, duration):
     async def run(channel, payload):
         nonlocal count
         while running:
-            await channel.request(b"hello", frames=[payload])
+            await channel.request(b"hello", body=payload)
             count += 1
 
     async with await new_channel(address) as channel:

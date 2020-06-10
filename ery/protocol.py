@@ -50,10 +50,6 @@ u16_struct = struct.Struct("<H")
 pack_u16 = u16_struct.pack_into
 
 
-def pack_nbytes(buf, offset, bytes):
-    buf[offset : len(bytes) + offset] = bytes
-
-
 def _write(
     kind,
     id=None,
@@ -61,10 +57,10 @@ def _write(
     route=None,
     metadata=None,
     body=None,
-    frames=None,
     is_next=False,
     is_complete=False,
 ):
+    nframes = route_length = None
     length = 2
     if id is not None:
         length += 4
@@ -72,24 +68,23 @@ def _write(
         length += 4
     flags = 0
     if route is not None:
-        length += 2 + len(route)
+        route_length = len(route)
+        length += 2 + route_length
     if metadata is not None:
         flags |= FLAG_METADATA
         length += 4
     if body is not None:
         flags |= FLAG_BODY
-        length += 4
-    elif frames is not None:
-        flags |= FLAG_BODY
-        if len(frames) == 1:
-            length += 4
-        else:
+        if isinstance(body, (list, tuple)):
             flags |= FLAG_FRAMES
-            length += 2 + 4 * len(frames)
+            nframes = len(body)
+            length += 2 + 4 * nframes
+        else:
+            length += 4
     if is_next:
-        flags &= FLAG_NEXT
+        flags |= FLAG_NEXT
     if is_complete:
-        flags &= FLAG_COMPLETE
+        flags |= FLAG_COMPLETE
 
     header = bytearray(length)
     header[0] = kind
@@ -100,7 +95,7 @@ def _write(
         pack_u32(header, offset, id)
         offset += 4
     if route is not None:
-        pack_u16(header, offset, len(route))
+        pack_u16(header, offset, route_length)
         offset += 2
     if uint32 is not None:
         pack_u32(header, offset, uint32)
@@ -110,20 +105,23 @@ def _write(
         offset += 4
         chunks.append(metadata)
     if body is not None:
-        pack_u32(header, offset, len(body))
-        if len(body) > 0:
-            chunks.append(body)
-    elif frames is not None:
-        if len(frames) > 1:
-            pack_u16(header, offset, len(frames))
+        if isinstance(body, (list, tuple)):
+            pack_u16(header, offset, nframes)
             offset += 2
-        for f in frames:
-            pack_u32(header, offset, len(f))
+            for frame in body:
+                frame_length = len(frame)
+                pack_u32(header, offset, frame_length)
+                offset += 4
+                if frame_length > 0:
+                    chunks.append(frame)
+        else:
+            body_length = len(body)
+            pack_u32(header, offset, body_length)
             offset += 4
-            if len(f) > 0:
-                chunks.append(f)
+            if body_length > 0:
+                chunks.append(body)
     if route is not None:
-        pack_nbytes(header, offset, route)
+        header[offset:] = route
     return chunks
 
 
@@ -206,13 +204,13 @@ class IncrementWindow(object):
 
 
 class Request(object):
-    __slots__ = ("id", "route", "metadata", "frames")
+    __slots__ = ("id", "route", "metadata", "body")
 
-    def __init__(self, id, route, metadata=None, frames=None):
+    def __init__(self, id, route, metadata=None, body=None):
         self.id = id
         self.route = route
         self.metadata = metadata
-        self.frames = frames
+        self.body = body
 
     def serialize(self):
         return _write(
@@ -220,33 +218,33 @@ class Request(object):
             id=self.id,
             route=self.route,
             metadata=self.metadata,
-            frames=self.frames,
+            body=self.body,
         )
 
 
 class Notice(object):
-    __slots__ = ("route", "metadata", "frames")
+    __slots__ = ("route", "metadata", "body")
 
-    def __init__(self, route, metadata=None, frames=None):
+    def __init__(self, route, metadata=None, body=None):
         self.route = route
         self.metadata = metadata
-        self.frames = frames
+        self.body = body
 
     def serialize(self):
         return _write(
-            Kind.NOTICE, route=self.route, metadata=self.metadata, frames=self.frames
+            Kind.NOTICE, route=self.route, metadata=self.metadata, body=self.body
         )
 
 
 class RequestStream(object):
-    __slots__ = ("id", "route", "window", "metadata", "frames")
+    __slots__ = ("id", "route", "window", "metadata", "body")
 
-    def __init__(self, id, window, route, metadata=None, frames=None):
+    def __init__(self, id, window, route, metadata=None, body=None):
         self.id = id
         self.window = window
         self.route = route
         self.metadata = metadata
-        self.frames = frames
+        self.body = body
 
     def serialize(self):
         return _write(
@@ -255,19 +253,19 @@ class RequestStream(object):
             uint32=self.window,
             route=self.route,
             metadata=self.metadata,
-            frames=self.frames,
+            body=self.body,
         )
 
 
 class RequestChannel(object):
-    __slots__ = ("id", "route", "window", "metadata", "frames")
+    __slots__ = ("id", "route", "window", "metadata", "body")
 
-    def __init__(self, id, window, route, metadata=None, frames=None):
+    def __init__(self, id, window, route, metadata=None, body=None):
         self.id = id
         self.window = window
         self.route = route
         self.metadata = metadata
-        self.frames = frames
+        self.body = body
 
     def serialize(self):
         return _write(
@@ -276,19 +274,17 @@ class RequestChannel(object):
             uint32=self.window,
             route=self.route,
             metadata=self.metadata,
-            frames=self.frames,
+            body=self.body,
         )
 
 
 class Payload(object):
-    __slots__ = ("id", "metadata", "frames", "is_next", "is_complete")
+    __slots__ = ("id", "metadata", "body", "is_next", "is_complete")
 
-    def __init__(
-        self, id, metadata=None, frames=None, is_next=False, is_complete=False
-    ):
+    def __init__(self, id, metadata=None, body=None, is_next=False, is_complete=False):
         self.id = id
         self.metadata = metadata
-        self.frames = frames
+        self.body = body
         self.is_next = is_next
         self.is_complete = is_complete
 
@@ -297,7 +293,7 @@ class Payload(object):
             Kind.PAYLOAD,
             id=self.id,
             metadata=self.metadata,
-            frames=self.frames,
+            body=self.body,
             is_next=self.is_next,
             is_complete=self.is_complete,
         )
