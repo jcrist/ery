@@ -113,7 +113,7 @@ Protocol_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 }
 
 static void
-Protocol_reset_message(ProtocolObject *self, bool decref)
+reset_message(ProtocolObject *self, bool decref)
 {
     self->op = OP_KIND;
     self->kind = KIND_UNKNOWN;
@@ -182,7 +182,7 @@ Protocol_init(ProtocolObject *self, PyObject *args, PyObject *kwds)
     }
     /* dynamic state */
     self->using_frame_buffer = false;
-    Protocol_reset_message(self, true);
+    reset_message(self, true);
     return 0;
 }
 
@@ -220,6 +220,19 @@ Protocol_dealloc(ProtocolObject *self)
         self->default_frame_lengths_buffer = NULL;
     }
     Py_TYPE(self)->tp_free((PyObject *) self);
+}
+
+static PyObject*
+Protocol_sizeof(ProtocolObject *self)
+{
+    // Size of the protocol + size of any constant buffers.
+    // We don't consider the size of any dynamic (per-message) buffers.
+    Py_ssize_t size = (
+        sizeof(ProtocolObject) +
+        self->default_buffer_size * sizeof(char) +
+        self->default_frame_lengths_buffer_size * sizeof(uint32_t)
+    );
+    return PyLong_FromSsize_t(size);
 }
 
 static PyObject*
@@ -261,7 +274,7 @@ Protocol_get_buffer(ProtocolObject *self)
 }
 
 static void
-Protocol_reset_default_buffer(ProtocolObject *self) {
+reset_default_buffer(ProtocolObject *self) {
     Py_ssize_t start = self->default_buffer_start;
     Py_ssize_t end = self->default_buffer_end;
 
@@ -277,7 +290,7 @@ Protocol_reset_default_buffer(ProtocolObject *self) {
     }
 }
 
-static int Protocol_advance(ProtocolObject *self);
+static int parse_next(ProtocolObject *self);
 
 static PyObject*
 Protocol_buffer_updated(ProtocolObject *self, PyObject *args)
@@ -299,12 +312,12 @@ Protocol_buffer_updated(ProtocolObject *self, PyObject *args)
 
     int status = 0;
     while (status == 0) {
-        status = Protocol_advance(self);
+        status = parse_next(self);
     }
     if (status < 0) {
         return NULL;
     }
-    Protocol_reset_default_buffer(self);
+    reset_default_buffer(self);
     Py_RETURN_NONE;
 }
 
@@ -569,7 +582,7 @@ parse_frames(ProtocolObject *self)
 #define PARSE_STOP(FORMAT, ...)                                                         \
     }                                                                                   \
     PyObject *args = Py_BuildValue(FORMAT, __VA_ARGS__);                                \
-    Protocol_reset_message(self, false);                                                \
+    reset_message(self, false);                                                         \
     PyObject *res = PyObject_CallObject(self->msg_callback, args);                      \
     Py_XDECREF(args);                                                                   \
     if (res == NULL) {                                                                  \
@@ -706,7 +719,7 @@ parse_payload(ProtocolObject *self)
 }
 
 static int
-Protocol_advance(ProtocolObject *self) {
+parse_next(ProtocolObject *self) {
     if (self->op == OP_KIND) {
         return parse_kind(self);
     } else {
@@ -744,6 +757,10 @@ static PyMethodDef Protocol_methods[] = {
     {
         "buffer_updated", (PyCFunction) Protocol_buffer_updated, METH_VARARGS,
         PyDoc_STR("buffer_updated(nbytes: int) -> None")
+    },
+    {
+        "__sizeof__", (PyCFunction) Protocol_sizeof, METH_NOARGS,
+        PyDoc_STR("Size in bytes, excluding any dynamic per-message buffers")
     },
     {NULL},
 };
