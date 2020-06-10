@@ -698,7 +698,11 @@ parse_payload(ProtocolObject *self)
     PARSE(OP_ROUTE, parse_route)
     PARSE(OP_METADATA, parse_metadata)
     PARSE(OP_FRAMES, parse_frames)
-    PARSE_STOP("B(INN)", self->kind, self->id, self->metadata, self->frames)
+    PARSE_STOP(
+        "B(INNOO)", self->kind, self->id, self->metadata, self->frames,
+        self->flags & FLAG_NEXT ? Py_True : Py_False,
+        self->flags & FLAG_COMPLETE ? Py_True : Py_False
+    )
 }
 
 static int
