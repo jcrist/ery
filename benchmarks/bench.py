@@ -2,15 +2,28 @@ import asyncio
 import argparse
 import os
 import time
+import ssl
 from concurrent import futures
 from ery.aioprotocol import start_server, new_channel
 from ery.protocol import Payload
 
 
-async def main(address, nprocs, concurrency, nbytes, duration, notify=False):
+async def main(
+    address, nprocs, concurrency, nbytes, duration, notify=False, use_ssl=False
+):
+    if use_ssl:
+        benchdir = os.path.abspath(os.path.dirname(__file__))
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        context.load_cert_chain(
+            os.path.join(benchdir, "cert.pem"), os.path.join(benchdir, "key.pem"),
+        )
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    else:
+        context = None
     outputs = []
     server = await start_server(
-        address, lambda channel: handler(channel, outputs, notify)
+        address, lambda channel: handler(channel, outputs, notify), ssl=context,
     )
     loop = asyncio.get_running_loop()
     with futures.ProcessPoolExecutor(max_workers=nprocs) as executor:
@@ -24,6 +37,7 @@ async def main(address, nprocs, concurrency, nbytes, duration, notify=False):
                     nbytes,
                     duration,
                     notify,
+                    use_ssl,
                 )
                 for _ in range(nprocs)
             ]
@@ -56,11 +70,18 @@ async def handler(channel, outputs, notify):
         outputs.append((count, duration))
 
 
-def bench_client(address, concurrency, nbytes, duration, notify):
-    return asyncio.run(client(address, concurrency, nbytes, duration, notify))
+def bench_client(address, concurrency, nbytes, duration, notify, use_ssl):
+    return asyncio.run(client(address, concurrency, nbytes, duration, notify, use_ssl))
 
 
-async def client(address, concurrency, nbytes, duration, notify):
+async def client(address, concurrency, nbytes, duration, notify, use_ssl):
+    if use_ssl:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    else:
+        context = None
+
     running = True
 
     def stop():
@@ -78,7 +99,7 @@ async def client(address, concurrency, nbytes, duration, notify):
         while running:
             await meth(b"hello", body=payload)
 
-    async with await new_channel(address) as channel:
+    async with await new_channel(address, ssl=context) as channel:
         loop.call_later(duration, stop)
         tasks = [
             asyncio.ensure_future(run(channel, payload)) for _ in range(concurrency)
@@ -112,6 +133,9 @@ if __name__ == "__main__":
         action="store_true",
         help="If set, `notify` is used instead of `request`",
     )
+    parser.add_argument(
+        "--ssl", action="store_true", help="If set, `ssl` is used",
+    )
     parser.add_argument("--uvloop", action="store_true", help="Whether to use uvloop")
     args = parser.parse_args()
 
@@ -127,7 +151,8 @@ if __name__ == "__main__":
 
     print(
         f"processes={args.procs}, concurrency={args.concurrency}, bytes={args.bytes}, "
-        f"time={args.seconds}, uvloop={args.uvloop}, unix-sockets={args.unix}"
+        f"time={args.seconds}, uvloop={args.uvloop}, unix-sockets={args.unix}, "
+        f"ssl={args.ssl}, notify={args.notify}"
     )
 
     asyncio.run(
@@ -138,5 +163,6 @@ if __name__ == "__main__":
             nbytes=int(args.bytes),
             duration=args.seconds,
             notify=args.notify,
+            use_ssl=args.ssl,
         )
     )
