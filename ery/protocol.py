@@ -1,7 +1,9 @@
-import enum
 import struct
 
-from ._lib import Protocol  # noqa
+from . import _lib
+
+
+Protocol = _lib.Protocol
 
 
 FLAG_METADATA = 1 << 7
@@ -9,38 +11,6 @@ FLAG_BODY = 1 << 6
 FLAG_FRAMES = 1 << 5
 FLAG_NEXT = 1 << 4
 FLAG_COMPLETE = 1 << 3
-
-
-class Kind(enum.IntEnum):
-    SETUP = 1
-    SETUP_RESPONSE = 2
-    HEARTBEAT = 3
-    ERROR = 4
-    CANCEL = 5
-    INCREMENT_WINDOW = 6
-    REQUEST = 7
-    NOTICE = 8
-    REQUEST_STREAM = 9
-    REQUEST_CHANNEL = 10
-    PAYLOAD = 11
-
-
-class Op(enum.IntEnum):
-    KIND = 0
-    FLAGS = 1
-    HEARTBEAT = 2
-    ID = 3
-    CODE = 4
-    WINDOW = 5
-    ROUTE_LENGTH = 6
-    METADATA_LENGTH = 7
-    BODY_LENGTH = 8
-    NFRAMES = 9
-    FRAME_LENGTHS = 10
-    ROUTE = 11
-    METADATA = 12
-    BODY = 13
-    FRAMES = 14
 
 
 u32_struct = struct.Struct("<L")
@@ -135,7 +105,10 @@ class Setup(object):
 
     def serialize(self):
         return _write(
-            Kind.SETUP, uint32=self.heartbeat, metadata=self.metadata, body=self.body
+            _lib.KIND_SETUP,
+            uint32=self.heartbeat,
+            metadata=self.metadata,
+            body=self.body,
         )
 
 
@@ -149,7 +122,7 @@ class SetupResponse(object):
 
     def serialize(self):
         return _write(
-            Kind.SETUP_RESPONSE,
+            _lib.KIND_SETUP_RESPONSE,
             uint32=self.heartbeat,
             metadata=self.metadata,
             body=self.body,
@@ -160,7 +133,7 @@ class Heartbeat(object):
     __slots__ = ()
 
     def serialize(self):
-        return [Kind.HEARTBEAT.to_bytes(1, "big", signed=True)]
+        return [_lib.KIND_HEARTBEAT.to_bytes(1, "big", signed=True)]
 
 
 class Error(object):
@@ -174,7 +147,7 @@ class Error(object):
 
     def serialize(self):
         return _write(
-            Kind.ERROR,
+            _lib.KIND_ERROR,
             id=self.id,
             uint32=self.code,
             metadata=self.metadata,
@@ -189,7 +162,7 @@ class Cancel(object):
         self.id = id
 
     def serialize(self):
-        return _write(Kind.CANCEL, id=self.id)
+        return _write(_lib.KIND_CANCEL, id=self.id)
 
 
 class IncrementWindow(object):
@@ -200,7 +173,7 @@ class IncrementWindow(object):
         self.window = window
 
     def serialize(self):
-        return _write(Kind.INCREMENT_WINDOW, id=self.id, uint32=self.window)
+        return _write(_lib.KIND_INCREMENT_WINDOW, id=self.id, uint32=self.window)
 
 
 class Request(object):
@@ -214,7 +187,7 @@ class Request(object):
 
     def serialize(self):
         return _write(
-            Kind.REQUEST,
+            _lib.KIND_REQUEST,
             id=self.id,
             route=self.route,
             metadata=self.metadata,
@@ -232,7 +205,7 @@ class Notice(object):
 
     def serialize(self):
         return _write(
-            Kind.NOTICE, route=self.route, metadata=self.metadata, body=self.body
+            _lib.KIND_NOTICE, route=self.route, metadata=self.metadata, body=self.body
         )
 
 
@@ -248,7 +221,7 @@ class RequestStream(object):
 
     def serialize(self):
         return _write(
-            Kind.REQUEST_STREAM,
+            _lib.KIND_REQUEST_STREAM,
             id=self.id,
             uint32=self.window,
             route=self.route,
@@ -269,7 +242,7 @@ class RequestChannel(object):
 
     def serialize(self):
         return _write(
-            Kind.REQUEST_CHANNEL,
+            _lib.KIND_REQUEST_CHANNEL,
             id=self.id,
             uint32=self.window,
             route=self.route,
@@ -290,7 +263,7 @@ class Payload(object):
 
     def serialize(self):
         return _write(
-            Kind.PAYLOAD,
+            _lib.KIND_PAYLOAD,
             id=self.id,
             metadata=self.metadata,
             body=self.body,
@@ -300,17 +273,17 @@ class Payload(object):
 
 
 dispatch_table = {
-    Kind.SETUP: Setup,
-    Kind.SETUP_RESPONSE: SetupResponse,
-    Kind.HEARTBEAT: Heartbeat,
-    Kind.ERROR: Error,
-    Kind.CANCEL: Cancel,
-    Kind.INCREMENT_WINDOW: IncrementWindow,
-    Kind.REQUEST: Request,
-    Kind.NOTICE: Notice,
-    Kind.REQUEST_STREAM: RequestStream,
-    Kind.REQUEST_CHANNEL: RequestChannel,
-    Kind.PAYLOAD: Payload,
+    _lib.KIND_SETUP: Setup,
+    _lib.KIND_SETUP_RESPONSE: SetupResponse,
+    _lib.KIND_HEARTBEAT: Heartbeat,
+    _lib.KIND_ERROR: Error,
+    _lib.KIND_CANCEL: Cancel,
+    _lib.KIND_INCREMENT_WINDOW: IncrementWindow,
+    _lib.KIND_REQUEST: Request,
+    _lib.KIND_NOTICE: Notice,
+    _lib.KIND_REQUEST_STREAM: RequestStream,
+    _lib.KIND_REQUEST_CHANNEL: RequestChannel,
+    _lib.KIND_PAYLOAD: Payload,
 }
 
 
