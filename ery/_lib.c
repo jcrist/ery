@@ -668,7 +668,6 @@ parse_notice(ProtocolObject *self)
 {
     PARSE_START()
     PARSE(OP_FLAGS, parse_flags)
-    PARSE(OP_ID, parse_id)
     PARSE(OP_ROUTE_LENGTH, parse_route_length)
     PARSE(OP_METADATA_LENGTH, parse_metadata_length)
     PARSE(OP_NFRAMES, parse_nframes)

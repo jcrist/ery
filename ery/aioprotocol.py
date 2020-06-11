@@ -3,7 +3,7 @@ import collections
 import itertools
 import time
 
-from .protocol import Protocol, build_message, Request, Payload
+from .protocol import Protocol, build_message, Request, Payload, Notice
 
 
 class ChannelProtocol(asyncio.BufferedProtocol):
@@ -120,6 +120,16 @@ class Channel(object):
         await self._protocol.write(msg)
         return await reply
 
+    async def notify(self, route, metadata=None, body=None):
+        """Send a notice message"""
+        if self._exception is not None:
+            raise self._exception
+
+        msg = Notice(route, metadata=metadata, body=body)
+        await self._protocol.write(msg)
+        await self._maybe_yield()
+        return
+
     async def send(self, msg):
         if self._exception is not None:
             raise self._exception
@@ -134,7 +144,7 @@ class Channel(object):
             await self.close()
 
     async def recv(self):
-        """Wait for the next request"""
+        """Wait for the next message"""
         if self._exception is not None:
             raise self._exception
 
@@ -172,7 +182,7 @@ class Channel(object):
             pass
 
     def _append_msg(self, msg):
-        if isinstance(msg, Request):
+        if isinstance(msg, (Request, Notice)):
             self._queue.append(msg)
 
             waiter = self._waiter

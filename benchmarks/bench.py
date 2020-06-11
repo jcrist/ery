@@ -1,24 +1,34 @@
 import asyncio
 import argparse
 import os
+import time
 from concurrent import futures
 from ery.aioprotocol import start_server, new_channel
 from ery.protocol import Payload
 
 
-async def main(address, nprocs, concurrency, nbytes, duration):
-    server = await start_server(address, handler)
+async def main(address, nprocs, concurrency, nbytes, duration, notify=False):
+    outputs = []
+    server = await start_server(
+        address, lambda channel: handler(channel, outputs, notify)
+    )
     loop = asyncio.get_running_loop()
     with futures.ProcessPoolExecutor(max_workers=nprocs) as executor:
         async with server:
             clients = [
                 loop.run_in_executor(
-                    executor, bench_client, address, concurrency, nbytes, duration,
+                    executor,
+                    bench_client,
+                    address,
+                    concurrency,
+                    nbytes,
+                    duration,
+                    notify,
                 )
                 for _ in range(nprocs)
             ]
-            res = await asyncio.gather(*clients)
-            counts, times = zip(*res)
+            await asyncio.gather(*clients)
+            counts, times = zip(*outputs)
             count = sum(counts)
             duration = sum(times) / nprocs
 
@@ -27,20 +37,30 @@ async def main(address, nprocs, concurrency, nbytes, duration):
     print(f"{nbytes * count / (duration * 1e6)} MB/s")
 
 
-async def handler(channel):
+async def handler(channel, outputs, notify):
+    start = time.time()
+    count = 0
     try:
-        async for req in channel:
-            resp = Payload(req.id, body=b"hi")
-            await channel.send(resp)
+        if notify:
+            async for req in channel:
+                count += 1
+        else:
+            async for req in channel:
+                resp = Payload(req.id, body=b"hi")
+                await channel.send(resp)
+                count += 1
     except OSError:
         pass
+    finally:
+        duration = time.time() - start
+        outputs.append((count, duration))
 
 
-def bench_client(address, concurrency, nbytes, duration):
-    return asyncio.run(client(address, concurrency, nbytes, duration))
+def bench_client(address, concurrency, nbytes, duration, notify):
+    return asyncio.run(client(address, concurrency, nbytes, duration, notify))
 
 
-async def client(address, concurrency, nbytes, duration):
+async def client(address, concurrency, nbytes, duration, notify):
     running = True
 
     def stop():
@@ -54,23 +74,16 @@ async def client(address, concurrency, nbytes, duration):
     payload = os.urandom(nbytes)
 
     async def run(channel, payload):
-        nonlocal count
+        meth = channel.notify if notify else channel.request
         while running:
-            await channel.request(b"hello", body=payload)
-            count += 1
+            await meth(b"hello", body=payload)
 
     async with await new_channel(address) as channel:
         loop.call_later(duration, stop)
-        count = 0
-        start = loop.time()
         tasks = [
             asyncio.ensure_future(run(channel, payload)) for _ in range(concurrency)
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
-        stop = loop.time()
-        time = stop - start
-
-    return count, time
 
 
 if __name__ == "__main__":
@@ -93,6 +106,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--unix", action="store_true", help="Whether to use unix domain sockets"
+    )
+    parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="If set, `notify` is used instead of `request`",
     )
     parser.add_argument("--uvloop", action="store_true", help="Whether to use uvloop")
     args = parser.parse_args()
@@ -119,5 +137,6 @@ if __name__ == "__main__":
             concurrency=args.concurrency,
             nbytes=int(args.bytes),
             duration=args.seconds,
+            notify=args.notify,
         )
     )
