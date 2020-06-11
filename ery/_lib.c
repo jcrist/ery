@@ -780,30 +780,56 @@ static PyTypeObject ProtocolType = {
     .tp_methods = Protocol_methods,
 };
 
-static PyModuleDef erylibmodule = {
+#define ADD_INT_CONSTANT(macro)                                     \
+    if (PyModule_AddIntConstant(module, #macro, macro) < 0) {       \
+        return -1;                                                  \
+    }
+
+static int
+lib_mod_exec(PyObject *module)
+{
+    ADD_INT_CONSTANT(KIND_SETUP)
+    ADD_INT_CONSTANT(KIND_SETUP_RESPONSE)
+    ADD_INT_CONSTANT(KIND_HEARTBEAT)
+    ADD_INT_CONSTANT(KIND_ERROR)
+    ADD_INT_CONSTANT(KIND_CANCEL)
+    ADD_INT_CONSTANT(KIND_INCREMENT_WINDOW)
+    ADD_INT_CONSTANT(KIND_REQUEST)
+    ADD_INT_CONSTANT(KIND_NOTICE)
+    ADD_INT_CONSTANT(KIND_REQUEST_STREAM)
+    ADD_INT_CONSTANT(KIND_REQUEST_CHANNEL)
+    ADD_INT_CONSTANT(KIND_PAYLOAD)
+
+    if (PyType_Ready(&ProtocolType) < 0) {
+        return -1;
+    }
+    Py_INCREF(&ProtocolType);
+    if (PyModule_AddObject(module, "Protocol", (PyObject *) &ProtocolType) < 0) {
+        Py_DECREF(&ProtocolType);
+        return -1;
+    }
+    return 0;
+}
+
+static PyModuleDef_Slot lib_mod_slots[] = {
+    {Py_mod_exec, lib_mod_exec},
+    {0, NULL},
+};
+
+
+PyDoc_STRVAR(module_doc, "c-extension core for ery");
+
+static PyModuleDef libmodule = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "ery._lib",
-    .m_doc = "c-extension core for ery",
-    .m_size = -1,
+    .m_name = "_lib",
+    .m_doc = module_doc,
+    .m_size = 0,
+    .m_methods = NULL,
+    .m_slots = lib_mod_slots,
 };
 
 PyMODINIT_FUNC
 PyInit__lib(void)
 {
-    PyObject *m;
-    if (PyType_Ready(&ProtocolType) < 0)
-        return NULL;
-
-    m = PyModule_Create(&erylibmodule);
-    if (m == NULL)
-        return NULL;
-
-    Py_INCREF(&ProtocolType);
-    if (PyModule_AddObject(m, "Protocol", (PyObject *) &ProtocolType) < 0) {
-        Py_DECREF(&ProtocolType);
-        Py_DECREF(m);
-        return NULL;
-    }
-
-    return m;
+    return PyModuleDef_Init(&libmodule);
 }
