@@ -601,8 +601,7 @@ parse_setup_or_setup_response(ProtocolObject *self)
     PARSE(OP_NFRAMES, parse_nframes)
     PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_METADATA, parse_metadata)
-    PARSE(OP_FRAMES, parse_frames)
-    PARSE_STOP("B(INN)", self->kind, self->extra_uint32, self->metadata, self->frames)
+    PARSE_STOP("B(INN)", self->kind, self->extra_uint32, self->metadata)
 }
 
 static int

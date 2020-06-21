@@ -96,36 +96,32 @@ def _write(
 
 
 class Setup(object):
-    __slots__ = ("heartbeat", "metadata", "body")
+    __slots__ = ("heartbeat", "metadata")
 
-    def __init__(self, heartbeat, metadata=None, body=None):
+    def __init__(self, heartbeat, metadata=None):
         self.heartbeat = heartbeat
         self.metadata = metadata
-        self.body = body
 
     def serialize(self):
         return _write(
             _lib.KIND_SETUP,
             uint32=self.heartbeat,
             metadata=self.metadata,
-            body=self.body,
         )
 
 
 class SetupResponse(object):
-    __slots__ = ("heartbeat", "metadata", "body")
+    __slots__ = ("heartbeat", "metadata")
 
-    def __init__(self, heartbeat, metadata=None, body=None):
+    def __init__(self, heartbeat, metadata=None):
         self.heartbeat = heartbeat
         self.metadata = metadata
-        self.body = body
 
     def serialize(self):
         return _write(
             _lib.KIND_SETUP_RESPONSE,
             uint32=self.heartbeat,
             metadata=self.metadata,
-            body=self.body,
         )
 
 
