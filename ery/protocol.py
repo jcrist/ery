@@ -103,11 +103,7 @@ class Setup(object):
         self.metadata = metadata
 
     def serialize(self):
-        return _write(
-            _lib.KIND_SETUP,
-            uint32=self.heartbeat,
-            metadata=self.metadata,
-        )
+        return _write(_lib.KIND_SETUP, uint32=self.heartbeat, metadata=self.metadata,)
 
 
 class SetupResponse(object):
@@ -119,9 +115,7 @@ class SetupResponse(object):
 
     def serialize(self):
         return _write(
-            _lib.KIND_SETUP_RESPONSE,
-            uint32=self.heartbeat,
-            metadata=self.metadata,
+            _lib.KIND_SETUP_RESPONSE, uint32=self.heartbeat, metadata=self.metadata,
         )
 
 

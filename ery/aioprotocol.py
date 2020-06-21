@@ -6,16 +6,16 @@ import time
 from .protocol import Protocol, build_message, Request, Payload, Notice
 
 
-class ChannelProtocol(asyncio.BufferedProtocol):
+class ConnectionProtocol(asyncio.BufferedProtocol):
     """
     start -> CM [-> GB [-> BU?]]* [-> ER?] -> CL -> end
     """
 
-    def __init__(self, handler=None, loop=None, **kwargs):
+    def __init__(self, on_connection=None, loop=None, **kwargs):
         super().__init__()
-        self._handler = handler
+        self._on_connection = on_connection
         self.transport = None
-        self.channel = None
+        self.connection = None
         self._loop = loop or asyncio.get_running_loop()
         self._connection_lost = None
         self._paused = False
@@ -24,27 +24,27 @@ class ChannelProtocol(asyncio.BufferedProtocol):
 
     def connection_made(self, transport):
         self.transport = transport
-        self.channel = Channel(self, self.transport, loop=self._loop)
+        self.connection = Connection(self, self.transport, loop=self._loop)
 
-        if self._handler is not None:
-            self._loop.create_task(self._handler(self.channel))
+        if self._on_connection is not None:
+            self._on_connection(self.connection)
 
     def get_buffer(self, sizehint):
         return self.protocol.get_buffer()
 
     def message_received(self, kind, args):
-        self.channel._append_msg(build_message(kind, args))
+        self.connection._append_msg(build_message(kind, args))
 
     def buffer_updated(self, nbytes):
         self.protocol.buffer_updated(nbytes)
 
     def eof_received(self):
-        self.channel._set_exception(ConnectionResetError())
+        self.connection._set_exception(ConnectionResetError())
 
     def connection_lost(self, exc=None):
         if exc is None:
             exc = ConnectionResetError("Connection closed")
-        self.channel._set_exception(exc)
+        self.connection._set_exception(exc)
         self._connection_lost = exc
 
         if self._paused:
@@ -79,10 +79,10 @@ class ChannelProtocol(asyncio.BufferedProtocol):
             await self._drain_waiter
 
 
-class Channel(object):
-    """A communication channel between two endpoints.
+class Connection(object):
+    """A connection between two endpoints.
 
-    Use ``new_channel`` to create a channel.
+    Use ``connect`` to create a connection.
     """
 
     def __init__(self, protocol, transport, loop):
@@ -151,7 +151,7 @@ class Channel(object):
         if not self._queue:
             if self._waiter is not None:
                 raise RuntimeError(
-                    "Channel.recv may only be called by one coroutine at a time"
+                    "Connection.recv may only be called by one coroutine at a time"
                 )
             self._waiter = self._loop.create_future()
             try:
@@ -168,9 +168,9 @@ class Channel(object):
             return transport.close()
 
     async def close(self):
-        """Close the channel and release all resources.
+        """Close the connection and release all resources.
 
-        It is invalid to use this channel after closing.
+        It is invalid to use this connection after closing.
 
         This method is idempotent.
         """
@@ -211,8 +211,8 @@ class Channel(object):
         self._close()
 
 
-async def new_channel(addr, *, loop=None, timeout=0, **kwargs):
-    """Create a new channel.
+async def connect(addr, *, loop=None, timeout=0, **kwargs):
+    """Create a new connection.
 
     Parameters
     ----------
@@ -227,7 +227,7 @@ async def new_channel(addr, *, loop=None, timeout=0, **kwargs):
 
     Returns
     -------
-    channel : Channel
+    connection : Connection
     """
     if loop is None:
         loop = asyncio.get_event_loop()
@@ -236,7 +236,7 @@ async def new_channel(addr, *, loop=None, timeout=0, **kwargs):
         timeout = float("inf")
 
     def factory():
-        return ChannelProtocol(loop=loop)
+        return ConnectionProtocol(loop=loop)
 
     if isinstance(addr, tuple):
         connect = loop.create_connection
@@ -261,37 +261,4 @@ async def new_channel(addr, *, loop=None, timeout=0, **kwargs):
             await asyncio.sleep(retry_interval)
             retry_interval = min(30, 1.5 * retry_interval)
 
-    return p.channel
-
-
-async def start_server(addr, handler, *, loop=None, **kwargs):
-    """Start a new server.
-
-    Parameters
-    ----------
-    addr : tuple or str
-        The address to listen at.
-    handler : callable
-        An async callable. When a new client connects, the handler will be
-        called with its respective channel to handle all requests.
-    loop : AbstractEventLoop, optional
-        The event loop to use.
-    **kwargs
-        All remaining parameters will be forwarded to ``loop.create_server``.
-
-    Returns
-    -------
-    server : Server
-    """
-    if loop is None:
-        loop = asyncio.get_event_loop()
-
-    def factory():
-        return ChannelProtocol(handler)
-
-    if isinstance(addr, tuple):
-        return await loop.create_server(factory, *addr, **kwargs)
-    elif isinstance(addr, str):
-        return await loop.create_unix_server(factory, addr, **kwargs)
-    else:
-        raise ValueError("Unknown address type: %s" % addr)
+    return p.connection

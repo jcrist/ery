@@ -4,7 +4,8 @@ import os
 import time
 import ssl
 from concurrent import futures
-from ery.aioprotocol import start_server, new_channel
+
+import ery
 from ery.protocol import Payload
 
 
@@ -22,12 +23,17 @@ async def main(
     else:
         context = None
     outputs = []
-    server = await start_server(
-        address, lambda channel: handler(channel, outputs, notify), ssl=context,
-    )
+    server = ery.Server(lambda conn: handler(conn, outputs, notify))
+    if isinstance(address, tuple):
+        host, port = address
+        server.add_tcp_listener(host=host, port=port, ssl=context)
+    else:
+        server.add_unix_listener(path=address, ssl=context)
+
+    await server.start()
     loop = asyncio.get_running_loop()
     with futures.ProcessPoolExecutor(max_workers=nprocs) as executor:
-        async with server:
+        try:
             clients = [
                 loop.run_in_executor(
                     executor,
@@ -45,23 +51,25 @@ async def main(
             counts, times = zip(*outputs)
             count = sum(counts)
             duration = sum(times) / nprocs
+        finally:
+            await server.stop()
 
     print(f"{count / duration} RPS")
     print(f"{duration / count * 1e6} us per request")
     print(f"{nbytes * count / (duration * 1e6)} MB/s")
 
 
-async def handler(channel, outputs, notify):
+async def handler(conn, outputs, notify):
     start = time.time()
     count = 0
     try:
         if notify:
-            async for req in channel:
+            async for req in conn:
                 count += 1
         else:
-            async for req in channel:
+            async for req in conn:
                 resp = Payload(req.id, body=b"hi")
-                await channel.send(resp)
+                await conn.send(resp)
                 count += 1
     except OSError:
         pass
@@ -94,16 +102,14 @@ async def client(address, concurrency, nbytes, duration, notify, use_ssl):
 
     payload = os.urandom(nbytes)
 
-    async def run(channel, payload):
-        meth = channel.notify if notify else channel.request
+    async def run(conn, payload):
+        meth = conn.notify if notify else conn.request
         while running:
             await meth(b"hello", body=payload)
 
-    async with await new_channel(address, ssl=context) as channel:
+    async with await ery.connect(address, ssl=context) as conn:
         loop.call_later(duration, stop)
-        tasks = [
-            asyncio.ensure_future(run(channel, payload)) for _ in range(concurrency)
-        ]
+        tasks = [asyncio.ensure_future(run(conn, payload)) for _ in range(concurrency)]
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
