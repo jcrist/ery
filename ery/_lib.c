@@ -54,10 +54,9 @@ enum Kind {
     KIND_CANCEL = 5,
     KIND_INCREMENT_WINDOW = 6,
     KIND_REQUEST = 7,
-    KIND_NOTICE = 8,
-    KIND_REQUEST_STREAM = 9,
-    KIND_REQUEST_CHANNEL = 10,
-    KIND_PAYLOAD = 11,
+    KIND_STREAM = 8,
+    KIND_CHANNEL = 9,
+    KIND_PAYLOAD = 10,
 };
 #define KIND_MAX 11
 
@@ -663,21 +662,6 @@ parse_request(ProtocolObject *self)
 }
 
 static int
-parse_notice(ProtocolObject *self)
-{
-    PARSE_START()
-    PARSE(OP_FLAGS, parse_flags)
-    PARSE(OP_ROUTE_LENGTH, parse_route_length)
-    PARSE(OP_METADATA_LENGTH, parse_metadata_length)
-    PARSE(OP_NFRAMES, parse_nframes)
-    PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
-    PARSE(OP_ROUTE, parse_route)
-    PARSE(OP_METADATA, parse_metadata)
-    PARSE(OP_FRAMES, parse_frames)
-    PARSE_STOP("B(NNN)", self->kind, self->route, self->metadata, self->frames)
-}
-
-static int
 parse_stream_or_channel(ProtocolObject *self)
 {
     PARSE_START()
@@ -735,10 +719,8 @@ parse_next(ProtocolObject *self) {
                 return parse_increment_window(self);
             case KIND_REQUEST:
                 return parse_request(self);
-            case KIND_NOTICE:
-                return parse_notice(self);
-            case KIND_REQUEST_STREAM:
-            case KIND_REQUEST_CHANNEL:
+            case KIND_STREAM:
+            case KIND_CHANNEL:
                 return parse_stream_or_channel(self);
             case KIND_PAYLOAD:
                 return parse_payload(self);
@@ -793,9 +775,8 @@ lib_mod_exec(PyObject *module)
     ADD_INT_CONSTANT(KIND_CANCEL)
     ADD_INT_CONSTANT(KIND_INCREMENT_WINDOW)
     ADD_INT_CONSTANT(KIND_REQUEST)
-    ADD_INT_CONSTANT(KIND_NOTICE)
-    ADD_INT_CONSTANT(KIND_REQUEST_STREAM)
-    ADD_INT_CONSTANT(KIND_REQUEST_CHANNEL)
+    ADD_INT_CONSTANT(KIND_STREAM)
+    ADD_INT_CONSTANT(KIND_CHANNEL)
     ADD_INT_CONSTANT(KIND_PAYLOAD)
 
     if (PyType_Ready(&ProtocolType) < 0) {

@@ -9,9 +9,7 @@ import ery
 from ery.protocol import Payload
 
 
-async def main(
-    address, nprocs, concurrency, nbytes, duration, notify=False, use_ssl=False
-):
+async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
     if use_ssl:
         benchdir = os.path.abspath(os.path.dirname(__file__))
         context = ssl.SSLContext(ssl.PROTOCOL_TLS)
@@ -23,7 +21,7 @@ async def main(
     else:
         context = None
     outputs = []
-    server = ery.Server(lambda conn: handler(conn, outputs, notify))
+    server = ery.Server(lambda conn: handler(conn, outputs))
     if isinstance(address, tuple):
         host, port = address
         server.add_tcp_listener(host=host, port=port, ssl=context)
@@ -42,7 +40,6 @@ async def main(
                     concurrency,
                     nbytes,
                     duration,
-                    notify,
                     use_ssl,
                 )
                 for _ in range(nprocs)
@@ -59,18 +56,14 @@ async def main(
     print(f"{nbytes * count / (duration * 1e6)} MB/s")
 
 
-async def handler(conn, outputs, notify):
+async def handler(conn, outputs):
     start = time.time()
     count = 0
     try:
-        if notify:
-            async for req in conn:
-                count += 1
-        else:
-            async for req in conn:
-                resp = Payload(req.id, body=b"hi")
-                await conn.send(resp)
-                count += 1
+        async for req in conn:
+            resp = Payload(req.id, body=b"hi")
+            await conn.send(resp)
+            count += 1
     except OSError:
         pass
     finally:
@@ -78,11 +71,11 @@ async def handler(conn, outputs, notify):
         outputs.append((count, duration))
 
 
-def bench_client(address, concurrency, nbytes, duration, notify, use_ssl):
-    return asyncio.run(client(address, concurrency, nbytes, duration, notify, use_ssl))
+def bench_client(address, concurrency, nbytes, duration, use_ssl):
+    return asyncio.run(client(address, concurrency, nbytes, duration, use_ssl))
 
 
-async def client(address, concurrency, nbytes, duration, notify, use_ssl):
+async def client(address, concurrency, nbytes, duration, use_ssl):
     if use_ssl:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS)
         context.check_hostname = False
@@ -103,9 +96,8 @@ async def client(address, concurrency, nbytes, duration, notify, use_ssl):
     payload = os.urandom(nbytes)
 
     async def run(conn, payload):
-        meth = conn.notify if notify else conn.request
         while running:
-            await meth(b"hello", body=payload)
+            await conn.request(b"hello", body=payload)
 
     async with await ery.connect(address, ssl=context) as conn:
         loop.call_later(duration, stop)
@@ -135,11 +127,6 @@ if __name__ == "__main__":
         "--unix", action="store_true", help="Whether to use unix domain sockets"
     )
     parser.add_argument(
-        "--notify",
-        action="store_true",
-        help="If set, `notify` is used instead of `request`",
-    )
-    parser.add_argument(
         "--ssl", action="store_true", help="If set, `ssl` is used",
     )
     parser.add_argument("--uvloop", action="store_true", help="Whether to use uvloop")
@@ -158,7 +145,7 @@ if __name__ == "__main__":
     print(
         f"processes={args.procs}, concurrency={args.concurrency}, bytes={args.bytes}, "
         f"time={args.seconds}, uvloop={args.uvloop}, unix-sockets={args.unix}, "
-        f"ssl={args.ssl}, notify={args.notify}"
+        f"ssl={args.ssl}"
     )
 
     asyncio.run(
@@ -168,7 +155,6 @@ if __name__ == "__main__":
             concurrency=args.concurrency,
             nbytes=int(args.bytes),
             duration=args.seconds,
-            notify=args.notify,
             use_ssl=args.ssl,
         )
     )

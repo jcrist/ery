@@ -185,21 +185,7 @@ class Request(object):
         )
 
 
-class Notice(object):
-    __slots__ = ("route", "metadata", "body")
-
-    def __init__(self, route, metadata=None, body=None):
-        self.route = route
-        self.metadata = metadata
-        self.body = body
-
-    def serialize(self):
-        return _write(
-            _lib.KIND_NOTICE, route=self.route, metadata=self.metadata, body=self.body
-        )
-
-
-class RequestStream(object):
+class Stream(object):
     __slots__ = ("id", "route", "window", "metadata", "body")
 
     def __init__(self, id, window, route, metadata=None, body=None):
@@ -220,7 +206,7 @@ class RequestStream(object):
         )
 
 
-class RequestChannel(object):
+class Channel(object):
     __slots__ = ("id", "route", "window", "metadata", "body")
 
     def __init__(self, id, window, route, metadata=None, body=None):
@@ -270,9 +256,8 @@ dispatch_table = {
     _lib.KIND_CANCEL: Cancel,
     _lib.KIND_INCREMENT_WINDOW: IncrementWindow,
     _lib.KIND_REQUEST: Request,
-    _lib.KIND_NOTICE: Notice,
-    _lib.KIND_REQUEST_STREAM: RequestStream,
-    _lib.KIND_REQUEST_CHANNEL: RequestChannel,
+    _lib.KIND_STREAM: Stream,
+    _lib.KIND_CHANNEL: Channel,
     _lib.KIND_PAYLOAD: Payload,
 }
 
