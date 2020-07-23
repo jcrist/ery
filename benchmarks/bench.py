@@ -6,7 +6,7 @@ import ssl
 from concurrent import futures
 
 import ery
-from ery.protocol import Payload
+from ery.core.protocol.messages import Payload
 
 
 async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):

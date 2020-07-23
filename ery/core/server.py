@@ -3,7 +3,7 @@ import os
 import socket
 import weakref
 
-from .aioprotocol import ConnectionProtocol
+from .protocol import ConnectionProtocol
 
 
 class Listener(object):

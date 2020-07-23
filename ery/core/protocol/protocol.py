@@ -3,7 +3,7 @@ import collections
 import itertools
 import time
 
-from .protocol import Protocol, build_message, Request, Payload
+from .messages import Protocol, build_message, Request, Payload
 
 
 class ConnectionProtocol(asyncio.BufferedProtocol):

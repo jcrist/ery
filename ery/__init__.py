@@ -1,2 +1,2 @@
-from .server import Server
-from .aioprotocol import connect
+from .core.server import Server
+from .core.protocol.protocol import connect
