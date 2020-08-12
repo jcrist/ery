@@ -1,12 +1,10 @@
 import asyncio
 import argparse
 import os
-import time
 import ssl
 from concurrent import futures
 
 import ery
-from ery.core.protocol.messages import Payload
 
 
 async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
@@ -20,8 +18,8 @@ async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
         context.verify_mode = ssl.CERT_NONE
     else:
         context = None
-    outputs = []
-    server = ery.Server(lambda conn: handler(conn, outputs))
+    app = App()
+    server = ery.Server(app)
     if isinstance(address, tuple):
         host, port = address
         server.add_tcp_listener(host=host, port=port, ssl=context)
@@ -45,9 +43,7 @@ async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
                 for _ in range(nprocs)
             ]
             await asyncio.gather(*clients)
-            counts, times = zip(*outputs)
-            count = sum(counts)
-            duration = sum(times) / nprocs
+            count = app.count
         finally:
             await server.stop()
 
@@ -56,19 +52,16 @@ async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
     print(f"{nbytes * count / (duration * 1e6)} MB/s")
 
 
-async def handler(conn, outputs):
-    start = time.time()
-    count = 0
-    try:
-        async for req in conn:
-            resp = Payload(req.id, body=b"hi")
-            await conn.send(resp)
-            count += 1
-    except OSError:
-        pass
-    finally:
-        duration = time.time() - start
-        outputs.append((count, duration))
+class App:
+    def __init__(self):
+        self.count = 0
+
+    def get_request_handler(self, route):
+        return self.handler
+
+    async def handler(self, data, comm):
+        self.count += 1
+        await comm.send(b"hi")
 
 
 def bench_client(address, concurrency, nbytes, duration, use_ssl):
@@ -97,12 +90,12 @@ async def client(address, concurrency, nbytes, duration, use_ssl):
 
     async def run(conn, payload):
         while running:
-            await conn.request(b"hello", body=payload)
+            await conn.request(b"hello", data=payload)
 
-    async with await ery.connect(address, ssl=context) as conn:
-        loop.call_later(duration, stop)
-        tasks = [asyncio.ensure_future(run(conn, payload)) for _ in range(concurrency)]
-        await asyncio.gather(*tasks, return_exceptions=True)
+    conn = await ery.connect(address, ssl=context)
+    loop.call_later(duration, stop)
+    tasks = [asyncio.ensure_future(run(conn, payload)) for _ in range(concurrency)]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":

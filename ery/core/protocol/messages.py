@@ -26,7 +26,7 @@ def _write(
     uint32=None,
     route=None,
     metadata=None,
-    body=None,
+    data=None,
     is_next=False,
     is_complete=False,
 ):
@@ -43,11 +43,11 @@ def _write(
     if metadata is not None:
         flags |= FLAG_METADATA
         length += 4
-    if body is not None:
+    if data is not None:
         flags |= FLAG_BODY
-        if isinstance(body, (list, tuple)):
+        if isinstance(data, (list, tuple)):
             flags |= FLAG_FRAMES
-            nframes = len(body)
+            nframes = len(data)
             length += 2 + 4 * nframes
         else:
             length += 4
@@ -74,22 +74,22 @@ def _write(
         pack_u32(header, offset, len(metadata))
         offset += 4
         chunks.append(metadata)
-    if body is not None:
-        if isinstance(body, (list, tuple)):
+    if data is not None:
+        if isinstance(data, (list, tuple)):
             pack_u16(header, offset, nframes)
             offset += 2
-            for frame in body:
+            for frame in data:
                 frame_length = len(frame)
                 pack_u32(header, offset, frame_length)
                 offset += 4
                 if frame_length > 0:
                     chunks.append(frame)
         else:
-            body_length = len(body)
-            pack_u32(header, offset, body_length)
+            data_length = len(data)
+            pack_u32(header, offset, data_length)
             offset += 4
-            if body_length > 0:
-                chunks.append(body)
+            if data_length > 0:
+                chunks.append(data)
     if route is not None:
         header[offset:] = route
     return chunks
@@ -127,22 +127,15 @@ class Heartbeat(object):
 
 
 class Error(object):
-    __slots__ = ("id", "code", "metadata", "body")
+    __slots__ = ("id", "code", "data")
 
-    def __init__(self, id, code, metadata=None, body=None):
+    def __init__(self, id, code, data=None):
         self.id = id
         self.code = code
-        self.metadata = metadata
-        self.body = body
+        self.data = data
 
     def serialize(self):
-        return _write(
-            _lib.KIND_ERROR,
-            id=self.id,
-            uint32=self.code,
-            metadata=self.metadata,
-            body=self.body,
-        )
+        return _write(_lib.KIND_ERROR, id=self.id, uint32=self.code, data=self.data,)
 
 
 class Cancel(object):
@@ -167,33 +160,25 @@ class IncrementWindow(object):
 
 
 class Request(object):
-    __slots__ = ("id", "route", "metadata", "body")
+    __slots__ = ("id", "route", "data")
 
-    def __init__(self, id, route, metadata=None, body=None):
+    def __init__(self, id, route, data=None):
         self.id = id
         self.route = route
-        self.metadata = metadata
-        self.body = body
+        self.data = data
 
     def serialize(self):
-        return _write(
-            _lib.KIND_REQUEST,
-            id=self.id,
-            route=self.route,
-            metadata=self.metadata,
-            body=self.body,
-        )
+        return _write(_lib.KIND_REQUEST, id=self.id, route=self.route, data=self.data,)
 
 
 class Stream(object):
-    __slots__ = ("id", "route", "window", "metadata", "body")
+    __slots__ = ("id", "route", "window", "data")
 
-    def __init__(self, id, window, route, metadata=None, body=None):
+    def __init__(self, id, window, route, data=None):
         self.id = id
         self.window = window
         self.route = route
-        self.metadata = metadata
-        self.body = body
+        self.data = data
 
     def serialize(self):
         return _write(
@@ -201,20 +186,18 @@ class Stream(object):
             id=self.id,
             uint32=self.window,
             route=self.route,
-            metadata=self.metadata,
-            body=self.body,
+            data=self.data,
         )
 
 
 class Channel(object):
-    __slots__ = ("id", "route", "window", "metadata", "body")
+    __slots__ = ("id", "route", "window", "data")
 
-    def __init__(self, id, window, route, metadata=None, body=None):
+    def __init__(self, id, window, route, data=None):
         self.id = id
         self.window = window
         self.route = route
-        self.metadata = metadata
-        self.body = body
+        self.data = data
 
     def serialize(self):
         return _write(
@@ -222,18 +205,16 @@ class Channel(object):
             id=self.id,
             uint32=self.window,
             route=self.route,
-            metadata=self.metadata,
-            body=self.body,
+            data=self.data,
         )
 
 
 class Payload(object):
-    __slots__ = ("id", "metadata", "body", "is_next", "is_complete")
+    __slots__ = ("id", "data", "is_next", "is_complete")
 
-    def __init__(self, id, metadata=None, body=None, is_next=False, is_complete=False):
+    def __init__(self, id, data=None, is_next=False, is_complete=False):
         self.id = id
-        self.metadata = metadata
-        self.body = body
+        self.data = data
         self.is_next = is_next
         self.is_complete = is_complete
 
@@ -241,8 +222,7 @@ class Payload(object):
         return _write(
             _lib.KIND_PAYLOAD,
             id=self.id,
-            metadata=self.metadata,
-            body=self.body,
+            data=self.data,
             is_next=self.is_next,
             is_complete=self.is_complete,
         )

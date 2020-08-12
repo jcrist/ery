@@ -109,13 +109,13 @@ class Connection(object):
         if not next(self._yield_cycler):
             await asyncio.sleep(0, loop=self._loop)
 
-    async def request(self, route, metadata=None, body=None):
+    async def request(self, route, data=None):
         """Send a request message and wait for a response"""
         if self._exception is not None:
             raise self._exception
 
         msg_id = next(self._id_iter)
-        msg = Request(msg_id, route, metadata=metadata, body=body)
+        msg = Request(msg_id, route, data=data)
         reply = self._active_reqs[msg_id] = self._loop.create_future()
         await self._protocol.write(msg)
         return await reply

@@ -1,2 +1,2 @@
 from .core.server import Server
-from .core.protocol.protocol import connect
+from .core.protocol.client import connect

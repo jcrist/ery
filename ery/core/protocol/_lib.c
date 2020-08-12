@@ -22,7 +22,7 @@
 
 enum Flag {
     FLAG_METADATA = 1 << 7,
-    FLAG_BODY = 1 << 6,
+    FLAG_DATA = 1 << 6,
     FLAG_FRAMES = 1 << 5,
     FLAG_NEXT = 1 << 4,
     FLAG_COMPLETE = 1 << 3,
@@ -52,7 +52,7 @@ enum Kind {
     KIND_HEARTBEAT = 3,
     KIND_ERROR = 4,
     KIND_CANCEL = 5,
-    KIND_INCREMENT_WINDOW = 6,
+    KIND_INCREASE_QUOTA = 6,
     KIND_REQUEST = 7,
     KIND_STREAM = 8,
     KIND_CHANNEL = 9,
@@ -433,7 +433,7 @@ static int
 parse_nframes(ProtocolObject *self)
 {
     int status;
-    if (self->flags & FLAG_BODY) {
+    if (self->flags & FLAG_DATA) {
         if (self->flags & FLAG_FRAMES) {
             status = parse_uint16(self, &self->nframes);
             if (status != 0) {
@@ -597,8 +597,6 @@ parse_setup_or_setup_response(ProtocolObject *self)
     PARSE(OP_FLAGS, parse_flags)
     PARSE(OP_HEARTBEAT, parse_extra_uint32)
     PARSE(OP_METADATA_LENGTH, parse_metadata_length)
-    PARSE(OP_NFRAMES, parse_nframes)
-    PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_METADATA, parse_metadata)
     PARSE_STOP("B(INN)", self->kind, self->extra_uint32, self->metadata)
 }
@@ -618,12 +616,10 @@ parse_error(ProtocolObject *self)
     PARSE(OP_FLAGS, parse_flags)
     PARSE(OP_ID, parse_id)
     PARSE(OP_CODE, parse_extra_uint32)
-    PARSE(OP_METADATA_LENGTH, parse_metadata_length)
     PARSE(OP_NFRAMES, parse_nframes)
     PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
-    PARSE(OP_METADATA, parse_metadata)
     PARSE(OP_FRAMES, parse_frames)
-    PARSE_STOP("B(IINN)", self->kind, self->id, self->extra_uint32, self->metadata, self->frames)
+    PARSE_STOP("B(IIN)", self->kind, self->id, self->extra_uint32, self->frames)
 }
 
 static int
@@ -636,7 +632,7 @@ parse_cancel(ProtocolObject *self)
 }
 
 static int
-parse_increment_window(ProtocolObject *self)
+parse_increase_quota(ProtocolObject *self)
 {
     PARSE_START()
     PARSE(OP_FLAGS, parse_flags)
@@ -652,13 +648,11 @@ parse_request(ProtocolObject *self)
     PARSE(OP_FLAGS, parse_flags)
     PARSE(OP_ID, parse_id)
     PARSE(OP_ROUTE_LENGTH, parse_route_length)
-    PARSE(OP_METADATA_LENGTH, parse_metadata_length)
     PARSE(OP_NFRAMES, parse_nframes)
     PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_ROUTE, parse_route)
-    PARSE(OP_METADATA, parse_metadata)
     PARSE(OP_FRAMES, parse_frames)
-    PARSE_STOP("B(INNN)", self->kind, self->id, self->route, self->metadata, self->frames)
+    PARSE_STOP("B(INN)", self->kind, self->id, self->route, self->frames)
 }
 
 static int
@@ -669,15 +663,13 @@ parse_stream_or_channel(ProtocolObject *self)
     PARSE(OP_ID, parse_id)
     PARSE(OP_WINDOW, parse_extra_uint32)
     PARSE(OP_ROUTE_LENGTH, parse_route_length)
-    PARSE(OP_METADATA_LENGTH, parse_metadata_length)
     PARSE(OP_NFRAMES, parse_nframes)
     PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_ROUTE, parse_route)
-    PARSE(OP_METADATA, parse_metadata)
     PARSE(OP_FRAMES, parse_frames)
     PARSE_STOP(
-        "B(IINNN)", self->kind, self->id, self->extra_uint32,
-        self->route, self->metadata, self->frames
+        "B(IINN)", self->kind, self->id, self->extra_uint32,
+        self->route, self->frames
     )
 }
 
@@ -687,14 +679,12 @@ parse_payload(ProtocolObject *self)
     PARSE_START()
     PARSE(OP_FLAGS, parse_flags)
     PARSE(OP_ID, parse_id)
-    PARSE(OP_METADATA_LENGTH, parse_metadata_length)
     PARSE(OP_NFRAMES, parse_nframes)
     PARSE(OP_FRAME_LENGTHS, parse_frame_lengths)
     PARSE(OP_ROUTE, parse_route)
-    PARSE(OP_METADATA, parse_metadata)
     PARSE(OP_FRAMES, parse_frames)
     PARSE_STOP(
-        "B(INNOO)", self->kind, self->id, self->metadata, self->frames,
+        "B(INOO)", self->kind, self->id, self->frames,
         self->flags & FLAG_NEXT ? Py_True : Py_False,
         self->flags & FLAG_COMPLETE ? Py_True : Py_False
     )
@@ -715,8 +705,8 @@ parse_next(ProtocolObject *self) {
                 return parse_error(self);
             case KIND_CANCEL:
                 return parse_cancel(self);
-            case KIND_INCREMENT_WINDOW:
-                return parse_increment_window(self);
+            case KIND_INCREASE_QUOTA:
+                return parse_increase_quota(self);
             case KIND_REQUEST:
                 return parse_request(self);
             case KIND_STREAM:
@@ -773,7 +763,7 @@ lib_mod_exec(PyObject *module)
     ADD_INT_CONSTANT(KIND_HEARTBEAT)
     ADD_INT_CONSTANT(KIND_ERROR)
     ADD_INT_CONSTANT(KIND_CANCEL)
-    ADD_INT_CONSTANT(KIND_INCREMENT_WINDOW)
+    ADD_INT_CONSTANT(KIND_INCREASE_QUOTA)
     ADD_INT_CONSTANT(KIND_REQUEST)
     ADD_INT_CONSTANT(KIND_STREAM)
     ADD_INT_CONSTANT(KIND_CHANNEL)

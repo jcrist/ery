@@ -3,7 +3,8 @@ import os
 import socket
 import weakref
 
-from .protocol import ConnectionProtocol
+from .protocol.core import ConnectionProtocol
+from .protocol.server import ServerCallbacks
 
 
 class Listener(object):
@@ -93,17 +94,15 @@ class SocketListener(Listener):
 
 
 class Server(object):
-    def __init__(self, handler):
-        self.handler = handler
+    def __init__(self, app):
+        self.app = app
         self.listeners = []
-        self._handlers = weakref.WeakSet()
+        self._connections = weakref.WeakSet()
 
     def _protocol_factory(self):
-        return ConnectionProtocol(self._on_connection)
-
-    def _on_connection(self, connection):
-        task = asyncio.ensure_future(self.handler(connection))
-        self._handlers.add(task)
+        conn = ConnectionProtocol(lambda proto: ServerCallbacks(self.app, proto))
+        self._connections.add(conn)
+        return conn
 
     def add_tcp_listener(self, port, *, host=None, ssl=None, **kwargs):
         """Add a new TCP listener.
@@ -154,4 +153,4 @@ class Server(object):
 
     async def stop(self):
         await asyncio.gather(*(listener.stop() for listener in self.listeners))
-        await asyncio.gather(*self._handlers, return_exceptions=True)
+        await asyncio.gather(*(c.wait_closed() for c in self._connections))
