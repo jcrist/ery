@@ -10,7 +10,7 @@ class ServiceMetaclass(type):
                 continue
             route = value._ery_handler_route
             if isinstance(route, str):
-                route = route.encode("utf-8")
+                route = route.encode()
             if kind == "request":
                 request_handlers[route] = value
             elif kind == "stream":

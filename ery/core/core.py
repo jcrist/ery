@@ -45,6 +45,8 @@ def serialize_msg(
         length += 4
     flags = 0
     if route is not None:
+        if isinstance(route, str):
+            route = route.encode()
         route_length = len(route)
         length += 2 + route_length
     if metadata is not None:
