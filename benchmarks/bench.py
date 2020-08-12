@@ -4,10 +4,10 @@ import os
 import ssl
 from concurrent import futures
 
-import ery
+import ery.core
 
 
-async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
+async def main(unix, nprocs, concurrency, nbytes, duration, use_ssl=False):
     if use_ssl:
         benchdir = os.path.abspath(os.path.dirname(__file__))
         context = ssl.SSLContext(ssl.PROTOCOL_TLS)
@@ -18,13 +18,14 @@ async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
         context.verify_mode = ssl.CERT_NONE
     else:
         context = None
-    app = App()
-    server = ery.Server(app)
-    if isinstance(address, tuple):
-        host, port = address
-        server.add_tcp_listener(host=host, port=port, ssl=context)
+    service = BenchService()
+    server = ery.core.Server(service)
+    if not unix:
+        server.add_tcp_listener(host="127.0.0.1", port=5556, ssl=context)
+        address = "tcp://127.0.0.1:5556"
     else:
-        server.add_unix_listener(path=address, ssl=context)
+        server.add_unix_listener(path="benchsock", ssl=context)
+        address = "unix:benchsock"
 
     await server.start()
     loop = asyncio.get_running_loop()
@@ -43,7 +44,7 @@ async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
                 for _ in range(nprocs)
             ]
             await asyncio.gather(*clients)
-            count = app.count
+            count = service.count
         finally:
             await server.stop()
 
@@ -52,14 +53,12 @@ async def main(address, nprocs, concurrency, nbytes, duration, use_ssl=False):
     print(f"{nbytes * count / (duration * 1e6)} MB/s")
 
 
-class App:
+class BenchService(ery.core.Service):
     def __init__(self):
         self.count = 0
 
-    def get_request_handler(self, route):
-        return self.handler
-
-    async def handler(self, data, comm):
+    @ery.core.request
+    async def bench(self, data, comm):
         self.count += 1
         await comm.send(b"hi")
 
@@ -88,14 +87,16 @@ async def client(address, concurrency, nbytes, duration, use_ssl):
 
     payload = os.urandom(nbytes)
 
-    async def run(conn, payload):
+    async def run(client, payload):
         while running:
-            await conn.request(b"hello", data=payload)
+            await client.request(b"bench", data=payload)
 
-    conn = await ery.connect(address, ssl=context)
-    loop.call_later(duration, stop)
-    tasks = [asyncio.ensure_future(run(conn, payload)) for _ in range(concurrency)]
-    await asyncio.gather(*tasks, return_exceptions=True)
+    async with ery.core.Client(address, ssl=context) as client:
+        loop.call_later(duration, stop)
+        tasks = [
+            asyncio.ensure_future(run(client, payload)) for _ in range(concurrency)
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":
@@ -130,11 +131,6 @@ if __name__ == "__main__":
 
         uvloop.install()
 
-    if args.unix:
-        address = "benchsock"
-    else:
-        address = ("127.0.0.1", 5556)
-
     print(
         f"processes={args.procs}, concurrency={args.concurrency}, bytes={args.bytes}, "
         f"time={args.seconds}, uvloop={args.uvloop}, unix-sockets={args.unix}, "
@@ -143,7 +139,7 @@ if __name__ == "__main__":
 
     asyncio.run(
         main(
-            address,
+            unix=args.unix,
             nprocs=args.procs,
             concurrency=args.concurrency,
             nbytes=int(args.bytes),

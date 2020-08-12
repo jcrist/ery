@@ -3,7 +3,7 @@ import os
 from setuptools import setup, find_packages
 from setuptools.extension import Extension
 
-ext_modules = [Extension("ery.core.protocol._lib", ["ery/core/protocol/_lib.c"])]
+ext_modules = [Extension("ery.core._lib", ["ery/core/_lib.c"])]
 
 setup(
     name="ery",

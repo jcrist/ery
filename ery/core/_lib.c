@@ -484,14 +484,14 @@ static int
 parse_route(ProtocolObject *self)
 {
     if (self->route == NULL) {
-        self->route = PyByteArray_FromStringAndSize(NULL, self->route_length);
+        self->route = PyBytes_FromStringAndSize(NULL, self->route_length);
         if (self->route == NULL) {
             return -1;
         }
         self->route_index = 0;
     }
     return parse_nbytes(
-        self, PyByteArray_AS_STRING(self->route), &self->route_index, self->route_length
+        self, PyBytes_AS_STRING(self->route), &self->route_index, self->route_length
     );
 }
 
@@ -737,7 +737,7 @@ static PyMethodDef Protocol_methods[] = {
 
 static PyTypeObject ProtocolType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "ery._lib.Protocol",
+    .tp_name = "ery.core._lib.Protocol",
     .tp_doc = "A sans-io protocol for ery",
     .tp_basicsize = sizeof(ProtocolObject),
     .tp_itemsize = 0,
@@ -790,7 +790,7 @@ PyDoc_STRVAR(module_doc, "c-extension core for ery");
 
 static PyModuleDef libmodule = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "_lib",
+    .m_name = "ery.core._lib",
     .m_doc = module_doc,
     .m_size = 0,
     .m_methods = NULL,

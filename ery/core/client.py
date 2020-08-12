@@ -1,19 +1,57 @@
 import asyncio
-import collections
 import itertools
+from urllib.parse import urlparse
 
-from .core import serialize_msg, _lib
+from .core import serialize_msg, ErrorCode
+from . import _lib
 
 
-class Connection:
-    def __init__(self, protocol, transport, loop):
-        self._protocol = protocol
-        self._transport = transport
-        self._loop = loop
+class RequestError(Exception):
+    pass
+
+
+class Client:
+    def __init__(self, address, **kwargs):
+        self.address = address
+        self._connect_kwargs = kwargs
 
         self._id_iter = itertools.count()
         self._exception = None
         self._requests = {}
+
+    def __await__(self):
+        return self.__aenter__().__await__()
+
+    async def __aenter__(self):
+        await self._connect()
+        return self
+
+    async def __aexit__(self, typ, value, traceback):
+        await self.close()
+
+    async def _connect(self):
+        def factory():
+            return ClientProtocol(self)
+
+        loop = asyncio.get_event_loop()
+        parsed = urlparse(self.address)
+
+        if parsed.scheme in ("tcp", "tls"):
+            host = parsed.hostname
+            port = parsed.port
+
+            transport, protocol = await loop.create_connection(
+                factory, host, port, **self._connect_kwargs
+            )
+        elif parsed.scheme in ("unix", "unix+tls"):
+            path = parsed.path
+            transport, protocol = await loop.create_unix_connection(factory, path)
+        else:
+            raise ValueError(f"Unknown address type: {self.address!r}")
+
+        self._protocol = protocol
+        self._transport = transport
+        self._loop = loop
 
     async def request(self, route, data=None):
         if self._exception is not None:
@@ -39,7 +77,7 @@ class Connection:
 
         self._exception = exc
 
-        for h in self._requests.items():
+        for h in self._requests.values():
             if not h.done():
                 h.set_exception(exc)
 
@@ -58,8 +96,10 @@ class Connection:
 
 
 class ClientProtocol(asyncio.BufferedProtocol):
-    def __init__(self, **kwargs):
+    def __init__(self, client, **kwargs):
         super().__init__()
+
+        self.client = client
 
         self._msg_handlers = {
             _lib.KIND_SETUP_RESPONSE: self.on_msg_setup_response,
@@ -71,7 +111,6 @@ class ClientProtocol(asyncio.BufferedProtocol):
         self._protocol = _lib.Protocol(self.message_received, **kwargs)
 
         self._transport = None
-        self._connection = None
 
         self._loop = asyncio.get_running_loop()
         self._connection_exc = None
@@ -80,7 +119,6 @@ class ClientProtocol(asyncio.BufferedProtocol):
 
     def connection_made(self, transport):
         self._transport = transport
-        self._connection = Connection(self, self._transport, self._loop)
 
     def get_buffer(self, sizehint):
         return self._protocol.get_buffer()
@@ -94,7 +132,7 @@ class ClientProtocol(asyncio.BufferedProtocol):
     def connection_lost(self, exc=None):
         if exc is None:
             exc = ConnectionResetError("Connection closed")
-        self._connection._set_exception(exc)
+        self.client._set_exception(exc)
         self._connection_lost = exc
 
         if self._paused:
@@ -185,26 +223,15 @@ class ClientProtocol(asyncio.BufferedProtocol):
         pass
 
     def on_msg_error(self, id, code, data):
-        pass
+        fut = self.client._requests.pop(id, None)
+        if fut is not None and not fut.done():
+            if code == ErrorCode.REQUEST_ERROR:
+                fut.set_exception(RequestError(data.decode()))
+            else:
+                fut.set_exception(Exception(data.decode()))
 
     def on_msg_increase_quota(self, id, quota):
         pass
 
     def on_msg_payload(self, id, data=None, is_next=False, is_complete=False):
-        self._connection._on_msg_payload(id, data, is_next=is_next, is_complete=is_complete)
-
-
-async def connect(addr, **kwargs):
-    loop = asyncio.get_event_loop()
-
-    if isinstance(addr, tuple):
-        connect = loop.create_connection
-        args = (ClientProtocol,) + addr
-    elif isinstance(addr, str):
-        connect = loop.create_unix_connection
-        args = (ClientProtocol, addr)
-    else:
-        raise ValueError("Unknown address type: %s" % addr)
-
-    _, p = await connect(*args, **kwargs)
-    return p._connection
+        self.client._on_msg_payload(id, data, is_next=is_next, is_complete=is_complete)
