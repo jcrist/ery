@@ -53,15 +53,23 @@ class Client:
         self._transport = transport
         self._loop = loop
 
-    async def request(self, route, data=None):
+    async def request(self, route, data=None, cancellable=True):
         if self._exception is not None:
             raise self._exception
 
         id = next(self._id_iter)
         fut = self._loop.create_future()
         self._requests[id] = fut
-        await self._protocol.send_request(id, route, data)
-        return await fut
+        try:
+            await self._protocol.send_request(id, route, data)
+            return await fut
+        except asyncio.CancelledError:
+            if cancellable:
+                try:
+                    await self._protocol.send_cancel(id)
+                except Exception:
+                    pass
+            raise
 
     async def close(self):
         self._close()

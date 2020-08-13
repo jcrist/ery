@@ -222,7 +222,12 @@ class ServerProtocol(asyncio.BufferedProtocol):
         pass
 
     def on_msg_cancel(self, id):
-        pass
+        obj = self.active.pop(id, None)
+        if obj is None:
+            return
+        kind, handler = obj
+        if kind == REQUEST:
+            handler.cancel()
 
     def on_msg_increase_quota(self, id, quota):
         pass
